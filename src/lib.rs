@@ -5,6 +5,8 @@ pub mod mascot_generic_format_builder;
 pub mod mascot_generic_format_metadata;
 pub mod merge_scans_metadata;
 pub mod merge_scans_metadata_builder;
+pub mod mascot_generic_format_data;
+pub mod mascot_generic_format_data_builder;
 pub mod line_parser;
 
 pub mod prelude {
@@ -15,5 +17,7 @@ pub mod prelude {
     pub use crate::mascot_generic_format_metadata::MascotGenericFormatMetadata;
     pub use crate::merge_scans_metadata::MergeScansMetadata;
     pub use crate::merge_scans_metadata_builder::MergeScansMetadataBuilder;
+    pub use crate::mascot_generic_format_data::MascotGenericFormatData;
+    pub use crate::mascot_generic_format_data_builder::MascotGenericFormatDataBuilder;
     pub use crate::line_parser::LineParser;
 }

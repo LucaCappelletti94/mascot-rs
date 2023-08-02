@@ -7,7 +7,10 @@ pub mod merge_scans_metadata;
 pub mod merge_scans_metadata_builder;
 pub mod mascot_generic_format_data;
 pub mod mascot_generic_format_data_builder;
+pub mod mascot_generic_format_metadata_builder;
 pub mod line_parser;
+pub mod trait_zero;
+pub mod strictly_positive;
 
 pub mod prelude {
     pub use crate::charge::Charge;
@@ -19,5 +22,8 @@ pub mod prelude {
     pub use crate::merge_scans_metadata_builder::MergeScansMetadataBuilder;
     pub use crate::mascot_generic_format_data::MascotGenericFormatData;
     pub use crate::mascot_generic_format_data_builder::MascotGenericFormatDataBuilder;
+    pub use crate::mascot_generic_format_metadata_builder::MascotGenericFormatMetadataBuilder;
     pub use crate::line_parser::LineParser;
+    pub use crate::trait_zero::Zero;
+    pub use crate::strictly_positive::StrictlyPositive;
 }

@@ -50,6 +50,11 @@ where
     /// let parser = MascotGenericFormatDataBuilder::<f64>::default();
     ///
     /// assert!(parser.can_parse_line(line));
+    /// 
+    /// let line = "SPECTYPE=CORRELATED MS";
+    /// let parser = MascotGenericFormatDataBuilder::<f64>::default();
+    /// 
+    /// assert!(parser.can_parse_line(line));
     ///
     /// let line = "TITLE=File:";
     /// let parser = MascotGenericFormatDataBuilder::<f64>::default();
@@ -74,6 +79,7 @@ where
     ///
     fn can_parse_line(&self, line: &str) -> bool {
         line.starts_with("MSLEVEL=")
+            || line.starts_with("SPECTYPE=CORRELATED MS")
             || line.contains(' ') && line.split(' ').all(|s| s.parse::<F>().is_ok())
     }
 
@@ -92,6 +98,12 @@ where
     ///
     /// parser.digest_line(line).is_err();
     /// 
+    /// let line = "MSLEVEL=1";
+    /// let mut parser = MascotGenericFormatDataBuilder::<f64>::default();
+    /// 
+    /// parser.digest_line(line).unwrap();
+    /// parser.digest_line("SPECTYPE=CORRELATED MS").unwrap();
+    /// 
     /// let mut parser = MascotGenericFormatDataBuilder::<f64>::default();
     ///
     /// parser.digest_line("MSLEVEL=1");
@@ -109,6 +121,15 @@ where
     fn digest_line(&mut self, line: &str) -> Result<(), String> {
         if line.starts_with("MSLEVEL=") {
             self.level = Some(FragmentationSpectraLevel::from_str(line)?);
+            return Ok(());
+        }
+
+        // If we encounter a SPECTYPE line, the MSLEVEL must have already been parsed
+        // and it must be equal to 1:
+        if line.starts_with("SPECTYPE=CORRELATED MS") {
+            if self.level != Some(FragmentationSpectraLevel::One) {
+                return Err("Could not parse SPECTYPE line: MSLEVEL must be 1".to_string());
+            }
             return Ok(());
         }
 

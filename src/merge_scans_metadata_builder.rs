@@ -104,8 +104,8 @@ impl<I: FromStr + Add<Output = I> + Eq + Copy> LineParser for MergeScansMetadata
     /// let metadata = builder.build().unwrap();
     ///
     /// assert_eq!(metadata.scans(), &[1567, 1540]);
-    /// assert_eq!(metadata.removed_due_to_low_quality(), &0);
-    /// assert_eq!(metadata.removed_due_to_low_cosine(), &0);
+    /// assert_eq!(metadata.removed_due_to_low_quality(), 0);
+    /// assert_eq!(metadata.removed_due_to_low_cosine(), 0);
     /// ```
     fn digest_line(&mut self, line: &str) -> Result<(), String> {
         // This first check is meant to capture lines such as:

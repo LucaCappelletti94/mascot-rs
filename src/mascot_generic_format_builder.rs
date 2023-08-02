@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{fmt::Debug, ops::Add, str::FromStr};
 
 use crate::prelude::*;
 
@@ -10,7 +10,7 @@ pub struct MascotGenericFormatBuilder<I, F> {
 
 impl<I, F> MascotGenericFormatBuilder<I, F>
 where
-    I: Copy,
+    I: Copy + Eq + Debug + Add<Output = I> + FromStr + From<usize>,
     F: Copy + StrictlyPositive,
 {
     /// Creates a new [`MascotGenericFormatBuilder`].

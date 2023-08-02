@@ -5,6 +5,7 @@ pub struct MascotGenericFormatMetadata<I, F> {
     parent_ion_mass: F,
     retention_time: F,
     charge: Charge,
+    merged_scans_metadata: Option<MergeScansMetadata<I>>,
     filename: Option<String>,
 }
 
@@ -42,6 +43,7 @@ impl<I: Copy, F: StrictlyPositive + Copy> MascotGenericFormatMetadata<I, F> {
     ///     parent_ion_mass,
     ///     retention_time,
     ///     charge,
+    ///     None,
     ///     filename.clone(),
     /// ).unwrap();
     /// 
@@ -57,6 +59,7 @@ impl<I: Copy, F: StrictlyPositive + Copy> MascotGenericFormatMetadata<I, F> {
     ///         -1.0,
     ///         retention_time,
     ///         charge,
+    ///         None,
     ///         filename.clone(),
     ///     ).is_err()
     /// );
@@ -67,6 +70,7 @@ impl<I: Copy, F: StrictlyPositive + Copy> MascotGenericFormatMetadata<I, F> {
     ///         parent_ion_mass,
     ///         -1.0,
     ///         charge,
+    ///         None,
     ///         filename.clone(),
     ///     ).is_err()
     /// );
@@ -77,6 +81,7 @@ impl<I: Copy, F: StrictlyPositive + Copy> MascotGenericFormatMetadata<I, F> {
     ///         parent_ion_mass,
     ///         retention_time,
     ///         charge,
+    ///         None,
     ///         Some("".to_string()),
     ///     ).is_err()
     /// );
@@ -88,6 +93,7 @@ impl<I: Copy, F: StrictlyPositive + Copy> MascotGenericFormatMetadata<I, F> {
         parent_ion_mass: F,
         retention_time: F,
         charge: Charge,
+        merged_scans_metadata: Option<MergeScansMetadata<I>>,
         filename: Option<String>,
     ) -> Result<Self, String> {
         if !parent_ion_mass.is_strictly_positive() {
@@ -109,6 +115,7 @@ impl<I: Copy, F: StrictlyPositive + Copy> MascotGenericFormatMetadata<I, F> {
             parent_ion_mass,
             retention_time,
             charge,
+            merged_scans_metadata,
             filename,
         })
     }

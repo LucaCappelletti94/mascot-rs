@@ -1,4 +1,5 @@
-use std::str::FromStr;
+use core::ops::Add;
+use std::{fmt::Debug, str::FromStr};
 
 use crate::prelude::*;
 
@@ -8,6 +9,7 @@ pub struct MascotGenericFormatMetadataBuilder<I, F> {
     parent_ion_mass: Option<F>,
     retention_time: Option<F>,
     charge: Option<Charge>,
+    merge_scans_metadata_builder: Option<MergeScansMetadataBuilder<I>>,
     filename: Option<String>,
 }
 
@@ -18,12 +20,17 @@ impl<I, F> Default for MascotGenericFormatMetadataBuilder<I, F> {
             parent_ion_mass: None,
             retention_time: None,
             charge: None,
+            merge_scans_metadata_builder: None,
             filename: None,
         }
     }
 }
 
-impl<I: Copy, F: StrictlyPositive + Copy> MascotGenericFormatMetadataBuilder<I, F> {
+impl<
+        I: Copy + PartialEq + Eq + From<usize> + Debug + FromStr + Add<Output = I>,
+        F: StrictlyPositive + Copy,
+    > MascotGenericFormatMetadataBuilder<I, F>
+{
     pub fn build(self) -> Result<MascotGenericFormatMetadata<I, F>, String> {
         MascotGenericFormatMetadata::new(
             self.feature_id.ok_or_else(|| {
@@ -39,6 +46,9 @@ impl<I: Copy, F: StrictlyPositive + Copy> MascotGenericFormatMetadataBuilder<I, 
             self.charge.ok_or_else(|| {
                 "Could not build MascotGenericFormatMetadata: charge is missing".to_string()
             })?,
+            self.merge_scans_metadata_builder
+                .map(|builder| builder.build())
+                .transpose()?,
             self.filename,
         )
     }
@@ -136,7 +146,7 @@ impl<I: FromStr + Eq + Copy, F: FromStr + PartialEq + Copy> LineParser
     /// let mut parser = MascotGenericFormatMetadataBuilder::<usize, f64>::default();
     /// parser.digest_line("RTINSECONDS=37.083").unwrap();
     /// assert!(parser.digest_line("RTINSECONDS=37.084").is_err());
-    /// 
+    ///
     /// let mut parser = MascotGenericFormatMetadataBuilder::<usize, f64>::default();
     /// parser.digest_line("CHARGE=1").unwrap();
     /// assert!(parser.digest_line("CHARGE=2").is_err());

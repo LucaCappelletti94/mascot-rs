@@ -2,6 +2,7 @@ use std::{fmt::Debug, ops::Add, str::FromStr};
 
 use crate::{line_parser::LineParser, prelude::*};
 
+#[derive(Debug, PartialEq, Eq, Clone, Hash)]
 /// Builder for [`MergeScansMetadata`].
 ///
 /// # Example

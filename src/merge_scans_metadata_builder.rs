@@ -1,4 +1,4 @@
-use std::{fmt::Debug, ops::Add, str::FromStr};
+use std::{fmt::{Debug}, ops::Add, str::FromStr};
 
 use crate::{line_parser::LineParser, prelude::*};
 
@@ -192,37 +192,55 @@ impl<I: FromStr + Add<Output = I> + Eq + Copy> LineParser for MergeScansMetadata
 
             // We obtain the number of scans that were merged and the total
             // number of scans.
-            let scans_merged =
-                fraction_parts
-                    .next()
-                    .unwrap()
-                    .trim()
-                    .parse::<I>()
-                    .map_err(|_| {
-                        format!(
-                            concat!(
-                                "Failed to parse the number of scans that were merged ",
-                                "from the line: ",
-                                "\"{}\"",
-                            ),
-                            line
-                        )
-                    })?;
-            let total_scans = fraction_parts
-                .next()
-                .unwrap()
-                .trim()
-                .parse::<I>()
-                .map_err(|_| {
+            let scans_merged: I = if let Some(scans_merged) = fraction_parts.next() {
+                scans_merged.trim()
+                .parse::<I>().map_err(|_|{
                     format!(
                         concat!(
-                            "Failed to parse the total number of scans ",
+                            "Failed to parse the number of scans that were merged ",
                             "from the line: ",
                             "\"{}\"",
                         ),
                         line
                     )
-                })?;
+                })
+            } else {
+                Err(format!(
+                    concat!(
+                        "The builder for the data structure ",
+                        "`MergeScansMetadata` ",
+                        "does not support the line: ",
+                        "\"{}\"",
+                    ),
+                    line,
+                ))
+            }?;
+            
+            // We obtain the number of scans that were merged and the total
+            // number of scans.
+            let total_scans: I = if let Some(total_scans) = fraction_parts.next() {
+                total_scans.trim()
+                .parse::<I>().map_err(|_|{
+                    format!(
+                        concat!(
+                            "Failed to parse the number of scans that were merged ",
+                            "from the line: ",
+                            "\"{}\"",
+                        ),
+                        line
+                    )
+                })
+            } else {
+                Err(format!(
+                    concat!(
+                        "The builder for the data structure ",
+                        "`MergeScansMetadata` ",
+                        "does not support the line: ",
+                        "\"{}\"",
+                    ),
+                    line,
+                ))
+            }?;
 
             // We expect the fraction to have two parts, the first containing
             // the number of scans that were merged and the second containing

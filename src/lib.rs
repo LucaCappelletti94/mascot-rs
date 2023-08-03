@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 pub mod charge;
 pub mod fragmentation_spectra_level;
 pub mod mascot_generic_format;

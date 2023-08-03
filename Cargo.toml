@@ -2,7 +2,13 @@
 name = "mascot-rs"
 version = "0.1.0"
 edition = "2021"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
-[dependencies]
+authors = ["Luca Cappelletti <cappelletti.luca94@gmail.com>"]
+description = "A library to read mascot spectra files"
+homepage = "https://github.com/LucaCappelletti94/mascot-rs"
+repository = "https://github.com/LucaCappelletti94/mascot-rs"
+readme = "README.md"
+license = "MIT"
+keywords = ["mascot", "format", "spectrography"]
+categories = [
+    "science",
+]

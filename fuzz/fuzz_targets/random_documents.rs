@@ -12,5 +12,5 @@ struct FuzzCase {
 
 
 fuzz_target!(|data: FuzzCase| {
-    let _ = MGFVec::<usize, f32>::from_iter(data.document.iter().map(|s| s.as_str()));
+    let _ = MGFVec::<usize, f32>::try_from_iter(data.document.iter().map(|s| s.as_str()));
 });

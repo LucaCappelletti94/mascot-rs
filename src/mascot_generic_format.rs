@@ -119,12 +119,12 @@ impl<I, F> MGFVec<I, F> {
         F: Copy + StrictlyPositive + FromStr + PartialEq + Debug,
     {
         let file = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        Self::from_iter(file
+        Self::try_from_iter(file
             .lines()
             .filter(|line| !line.is_empty()))
     }
 
-    pub fn from_iter<'a, T>(iter: T) -> Result<Self, String>
+    pub fn try_from_iter<'a, T>(iter: T) -> Result<Self, String>
     where
         T: IntoIterator<Item = &'a str>,
         I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero,

@@ -1,4 +1,4 @@
-use std::{fmt::{Debug}, ops::Add, str::FromStr};
+use std::{fmt::Debug, ops::Add, str::FromStr};
 
 use crate::{line_parser::LineParser, prelude::*};
 
@@ -78,11 +78,11 @@ impl<I: FromStr + Add<Output = I> + Eq + Copy + From<usize> + Debug> MergeScansM
 
 impl<I: FromStr + Add<Output = I> + Eq + Copy> LineParser for MergeScansMetadataBuilder<I> {
     /// Returns `true` if the line can be parsed by the data structure.
-    /// 
+    ///
     /// # Example
     /// ```rust
     /// use mascot_rs::prelude::*;
-    /// 
+    ///
     /// assert!(
     ///     MergeScansMetadataBuilder::<usize>::can_parse_line("MERGED_SCANS=1567,1540"));
     /// assert!(
@@ -97,12 +97,12 @@ impl<I: FromStr + Add<Output = I> + Eq + Copy> LineParser for MergeScansMetadata
     }
 
     /// Returns whether the data structure can be built.
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```rust
     /// use mascot_rs::prelude::*;
-    /// 
+    ///
     /// let mut builder: MergeScansMetadataBuilder<usize> = MergeScansMetadataBuilder::default();
     /// assert!(!builder.can_build());
     /// builder.digest_line("MERGED_SCANS=1567,1540").unwrap();
@@ -193,8 +193,7 @@ impl<I: FromStr + Add<Output = I> + Eq + Copy> LineParser for MergeScansMetadata
             // We obtain the number of scans that were merged and the total
             // number of scans.
             let scans_merged: I = if let Some(scans_merged) = fraction_parts.next() {
-                scans_merged.trim()
-                .parse::<I>().map_err(|_|{
+                scans_merged.trim().parse::<I>().map_err(|_| {
                     format!(
                         concat!(
                             "Failed to parse the number of scans that were merged ",
@@ -215,12 +214,11 @@ impl<I: FromStr + Add<Output = I> + Eq + Copy> LineParser for MergeScansMetadata
                     line,
                 ))
             }?;
-            
+
             // We obtain the number of scans that were merged and the total
             // number of scans.
             let total_scans: I = if let Some(total_scans) = fraction_parts.next() {
-                total_scans.trim()
-                .parse::<I>().map_err(|_|{
+                total_scans.trim().parse::<I>().map_err(|_| {
                     format!(
                         concat!(
                             "Failed to parse the number of scans that were merged ",
@@ -248,49 +246,103 @@ impl<I: FromStr + Add<Output = I> + Eq + Copy> LineParser for MergeScansMetadata
             // to split the second part into two parts:
             // 1. The number of scans that were removed due to low quality.
             // 2. The number of scans that were removed due to low cosine.
-            let mut removed_parts = parts.next().unwrap().split(',');
+            let (low_quality, low_cosine) = if let Some(removed_scans) = parts.next() {
+                let mut removed_scans = removed_scans.split(',');
+                let low_quality = if let Some(low_quality) = removed_scans.next() {
+                    Ok(low_quality)
+                } else {
+                    Err(format!(
+                        concat!(
+                            "The builder for the data structure ",
+                            "`MergeScansMetadata` ",
+                            "does not extract the low quality ",
+                            "scans count from the line: ",
+                            "\"{}\"",
+                        ),
+                        line,
+                    ))
+                }?;
 
-            let low_quality = removed_parts.next().unwrap();
-            let low_cosine = removed_parts.next().unwrap();
+                let low_cosine = if let Some(low_cosine) = removed_scans.next() {
+                    Ok(low_cosine)
+                } else {
+                    Err(format!(
+                        concat!(
+                            "The builder for the data structure ",
+                            "`MergeScansMetadata` ",
+                            "does not extract the low cosine ",
+                            "scans count from the line: ",
+                            "\"{}\"",
+                        ),
+                        line,
+                    ))
+                }?;
+                Ok((low_quality, low_cosine))
+            } else {
+                Err(format!(
+                    concat!(
+                        "The builder for the data structure ",
+                        "`MergeScansMetadata` ",
+                        "does not support the line: ",
+                        "\"{}\"",
+                    ),
+                    line,
+                ))
+            }?;
 
             // We expect the number of scans that were removed to have two parts,
             // the first containing the number of scans that were removed due to
             // low quality and the second containing the number of scans that were
             // removed due to low cosine. We assign the two parts and proceed to
             // parse the values.
-            let removed_due_to_low_quality = low_quality
-                .trim()
-                .split(' ')
-                .next()
-                .unwrap()
-                .parse::<I>()
-                .map_err(|_| {
-                    format!(
+            let removed_due_to_low_quality =
+                if let Some(low_quality) = low_quality.trim().split(' ').next() {
+                    low_quality.parse::<I>().map_err(|_| {
+                        format!(
+                            concat!(
+                                "Failed to parse the number of scans that were removed ",
+                                "due to low quality from the line: ",
+                                "\"{}\"",
+                            ),
+                            line
+                        )
+                    })
+                } else {
+                    Err(format!(
                         concat!(
-                            "Failed to parse the number of scans that were removed ",
-                            "due to low quality from the line: ",
-                            "\"{}\"",
-                        ),
-                        line
-                    )
-                })?;
-
-            let removed_due_to_low_cosine = low_cosine
-                .trim()
-                .split(' ')
-                .next()
-                .unwrap()
-                .parse::<I>()
-                .map_err(|_| {
-                    format!(
-                        concat!(
-                            "Failed to parse the number of scans that were removed ",
-                            "due to low cosine from the line: ",
+                            "The builder for the data structure ",
+                            "`MergeScansMetadata` ",
+                            "does not support the line: ",
                             "\"{}\"",
                         ),
                         line,
-                    )
-                })?;
+                    ))
+                }?;
+
+            let removed_due_to_low_cosine =
+                if let Some(low_cosine) = low_cosine.trim().split(' ').next() {
+                    low_cosine.parse::<I>().map_err(|_| {
+                        format!(
+                            concat!(
+                                "Failed to parse the number of scans that were removed ",
+                                "due to low cosine from the line: ",
+                                "\"{}\"",
+                            ),
+                            line
+                        )
+                    })
+                } else {
+                    Err(format!(
+                        concat!(
+                            "The builder for the data structure ",
+                            "`MergeScansMetadata` ",
+                            "does not support the line: ",
+                            "\"{}\"",
+                        ),
+                        line,
+                    ))
+                }?;
+
             // We check whether the sum of removed scans plus the number of scans
             // that were merged equals the total number of scans.
             if scans_merged + removed_due_to_low_quality + removed_due_to_low_cosine != total_scans

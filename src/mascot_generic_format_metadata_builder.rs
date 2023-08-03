@@ -29,7 +29,7 @@ impl<I, F> Default for MascotGenericFormatMetadataBuilder<I, F> {
 }
 
 impl<
-        I: Copy + PartialEq + Eq + From<usize> + Debug + FromStr + Add<Output = I>,
+        I: Copy + PartialEq + Eq + From<usize> + Debug + FromStr + Add<Output = I> + Zero,
         F: StrictlyPositive + Copy,
     > MascotGenericFormatMetadataBuilder<I, F>
 {

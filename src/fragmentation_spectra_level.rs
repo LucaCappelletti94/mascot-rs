@@ -6,6 +6,25 @@ pub enum FragmentationSpectraLevel {
     Two,
 }
 
+impl PartialOrd for FragmentationSpectraLevel {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Eq for FragmentationSpectraLevel {}
+
+impl Ord for FragmentationSpectraLevel {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            (Self::One, Self::One) => std::cmp::Ordering::Equal,
+            (Self::One, Self::Two) => std::cmp::Ordering::Less,
+            (Self::Two, Self::One) => std::cmp::Ordering::Greater,
+            (Self::Two, Self::Two) => std::cmp::Ordering::Equal,
+        }
+    }
+}
+
 impl FromStr for FragmentationSpectraLevel {
     type Err = String;
 

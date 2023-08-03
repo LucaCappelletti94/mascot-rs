@@ -10,6 +10,7 @@ pub mod mascot_generic_format_data_builder;
 pub mod mascot_generic_format_metadata_builder;
 pub mod line_parser;
 pub mod strictly_positive;
+pub mod zero;
 
 pub mod prelude {
     pub use crate::charge::Charge;
@@ -25,4 +26,5 @@ pub mod prelude {
     pub use crate::mascot_generic_format_metadata_builder::MascotGenericFormatMetadataBuilder;
     pub use crate::line_parser::LineParser;
     pub use crate::strictly_positive::StrictlyPositive;
+    pub use crate::zero::Zero;
 }

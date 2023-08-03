@@ -9,7 +9,9 @@ pub struct MascotGenericFormat<I, F> {
     data: Vec<MascotGenericFormatData<F>>,
 }
 
-impl<I: Copy, F: Copy + StrictlyPositive> MascotGenericFormat<I, F> {
+impl<I: Copy + Zero + PartialEq + Debug + Add<Output = I> + Eq, F: Copy + StrictlyPositive>
+    MascotGenericFormat<I, F>
+{
     pub fn new(
         metadata: MascotGenericFormatMetadata<I, F>,
         data: Vec<MascotGenericFormatData<F>>,
@@ -40,6 +42,16 @@ impl<I: Copy, F: Copy + StrictlyPositive> MascotGenericFormat<I, F> {
     /// Returns the filename of the metadata.
     pub fn filename(&self) -> Option<&str> {
         self.metadata.filename()
+    }
+
+    /// Returns the minimum fragmentation level.
+    pub fn min_fragmentation_level(&self) -> Option<FragmentationSpectraLevel> {
+        self.data.iter().map(|d| d.level()).min()
+    }
+
+    /// Returns the maximum fragmentation level.
+    pub fn max_fragmentation_level(&self) -> Option<FragmentationSpectraLevel> {
+        self.data.iter().map(|d| d.level()).max()
     }
 }
 
@@ -72,7 +84,7 @@ impl<I, F> MGFVec<I, F> {
     ///
     /// An example of a document that contains only the first level of
     /// fragmentation spectra:
-    /// 
+    ///
     /// ```
     /// use mascot_rs::prelude::*;
     ///
@@ -85,25 +97,25 @@ impl<I, F> MGFVec<I, F> {
     ///     "but it is {}."
     /// ), mascot_generic_formats.len());
     /// ```
-    /// 
+    ///
     /// An example of another type of documents that contains both the first and
     /// second level of fragmentation spectra:
-    /// 
+    ///
     /// ```
     /// use mascot_rs::prelude::*;
-    /// 
+    ///
     /// let path = "tests/data/20220513_PMA_DBGI_01_04_001.mzML_chromatograms_deconvoluted_deisotoped_filtered_enpkg_sirius.mgf";
-    /// 
+    ///
     /// let mascot_generic_formats: MGFVec<usize, f64> = MGFVec::from_path(path).unwrap();
-    /// 
+    ///
     /// assert_eq!(mascot_generic_formats.len(), 139);
-    /// 
+    ///
     /// ```
-    /// 
-    /// 
+    ///
+    ///
     pub fn from_path(path: &str) -> Result<Self, String>
     where
-        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
+        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero,
         F: Copy + StrictlyPositive + FromStr + PartialEq + Debug,
     {
         let file = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
@@ -180,7 +192,7 @@ impl<I, F> IndexMut<usize> for MGFVec<I, F> {
 
 impl<
         'a,
-        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
+        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero,
         F: Copy + StrictlyPositive + FromStr + PartialEq + Debug,
     > FromIterator<&'a str> for MGFVec<I, F>
 {

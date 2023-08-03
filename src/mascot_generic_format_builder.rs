@@ -12,7 +12,7 @@ pub struct MascotGenericFormatBuilder<I, F> {
 
 impl<I, F> MascotGenericFormatBuilder<I, F>
 where
-    I: Copy + Eq + Debug + Add<Output = I> + FromStr + From<usize>,
+    I: Copy + Eq + Debug + Add<Output = I> + FromStr + From<usize> + Zero,
     F: Copy + StrictlyPositive,
 {
     /// Creates a new [`MascotGenericFormatBuilder`].

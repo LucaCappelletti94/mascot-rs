@@ -1,5 +1,6 @@
 use crate::prelude::*;
 
+#[derive(Debug, Clone)]
 pub struct MascotGenericFormatData<F> {
     level: FragmentationSpectraLevel,
     mass_divided_by_charge_ratios: Vec<F>,

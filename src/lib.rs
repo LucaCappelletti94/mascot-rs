@@ -9,13 +9,13 @@ pub mod mascot_generic_format_data;
 pub mod mascot_generic_format_data_builder;
 pub mod mascot_generic_format_metadata_builder;
 pub mod line_parser;
-pub mod trait_zero;
 pub mod strictly_positive;
 
 pub mod prelude {
     pub use crate::charge::Charge;
     pub use crate::fragmentation_spectra_level::FragmentationSpectraLevel;
     pub use crate::mascot_generic_format::MascotGenericFormat;
+    pub use crate::mascot_generic_format::MGFVec;
     pub use crate::mascot_generic_format_builder::MascotGenericFormatBuilder;
     pub use crate::mascot_generic_format_metadata::MascotGenericFormatMetadata;
     pub use crate::merge_scans_metadata::MergeScansMetadata;
@@ -24,6 +24,5 @@ pub mod prelude {
     pub use crate::mascot_generic_format_data_builder::MascotGenericFormatDataBuilder;
     pub use crate::mascot_generic_format_metadata_builder::MascotGenericFormatMetadataBuilder;
     pub use crate::line_parser::LineParser;
-    pub use crate::trait_zero::Zero;
     pub use crate::strictly_positive::StrictlyPositive;
 }

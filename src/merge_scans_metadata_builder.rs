@@ -83,14 +83,37 @@ impl<I: FromStr + Add<Output = I> + Eq + Copy> LineParser for MergeScansMetadata
     /// ```rust
     /// use mascot_rs::prelude::*;
     /// 
-    /// let builder: MergeScansMetadataBuilder<usize> = MergeScansMetadataBuilder::default();
-    /// assert!(builder.can_parse_line("MERGED_SCANS=1567,1540"));
-    /// assert!(builder.can_parse_line("MERGED_STATS=2 / 2 (0 removed due to low quality, 0 removed due to low cosine)."));
-    /// assert!(!builder.can_parse_line("SCANS=1567,1540"));
-    /// assert!(!builder.can_parse_line("STATS=2 / 2 (0 removed due to low quality, 0 removed due to low cosine)."));
+    /// assert!(
+    ///     MergeScansMetadataBuilder::<usize>::can_parse_line("MERGED_SCANS=1567,1540"));
+    /// assert!(
+    ///     MergeScansMetadataBuilder::<usize>::can_parse_line("MERGED_STATS=2 / 2 (0 removed due to low quality, 0 removed due to low cosine)."),
+    ///     "The line \"MERGED_STATS=2 / 2 (0 removed due to low quality, 0 removed due to low cosine).\" should be parsable by the data structure `MergeScansMetadataBuilder`."
+    /// );
+    /// assert!(!MergeScansMetadataBuilder::<usize>::can_parse_line("SCANS=1567,1540"));
+    /// assert!(!MergeScansMetadataBuilder::<usize>::can_parse_line("STATS=2 / 2 (0 removed due to low quality, 0 removed due to low cosine)."));
     /// ```
-    fn can_parse_line(&self, line: &str) -> bool {
+    fn can_parse_line(line: &str) -> bool {
         line.starts_with("MERGED_SCANS=") || line.starts_with("MERGED_STATS=")
+    }
+
+    /// Returns whether the data structure can be built.
+    /// 
+    /// # Example
+    /// 
+    /// ```rust
+    /// use mascot_rs::prelude::*;
+    /// 
+    /// let mut builder: MergeScansMetadataBuilder<usize> = MergeScansMetadataBuilder::default();
+    /// assert!(!builder.can_build());
+    /// builder.digest_line("MERGED_SCANS=1567,1540").unwrap();
+    /// assert!(!builder.can_build());
+    /// builder.digest_line("MERGED_STATS=2 / 2 (0 removed due to low quality, 0 removed due to low cosine).").unwrap();
+    /// assert!(builder.can_build());
+    /// ```
+    fn can_build(&self) -> bool {
+        self.removed_due_to_low_cosine.is_some()
+            && self.removed_due_to_low_quality.is_some()
+            && self.total_scans.is_some()
     }
 
     /// Parses the line and updates the data structure.

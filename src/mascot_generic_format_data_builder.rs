@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 use crate::prelude::*;
 
+#[derive(Debug, Clone)]
 /// Struct to hold the data of a single scan in a Mascot Generic Format file.
 pub struct MascotGenericFormatDataBuilder<F> {
     level: Option<FragmentationSpectraLevel>,
@@ -47,19 +48,16 @@ where
     /// use mascot_rs::prelude::*;
     ///
     /// let line = "MSLEVEL=1";
-    /// let parser = MascotGenericFormatDataBuilder::<f64>::default();
     ///
-    /// assert!(parser.can_parse_line(line));
+    /// assert!(MascotGenericFormatDataBuilder::<f64>::can_parse_line(line));
     /// 
     /// let line = "SPECTYPE=CORRELATED MS";
-    /// let parser = MascotGenericFormatDataBuilder::<f64>::default();
     /// 
-    /// assert!(parser.can_parse_line(line));
+    /// assert!(MascotGenericFormatDataBuilder::<f64>::can_parse_line(line));
     ///
     /// let line = "TITLE=File:";
-    /// let parser = MascotGenericFormatDataBuilder::<f64>::default();
     ///
-    /// assert!(!parser.can_parse_line(line));
+    /// assert!(!MascotGenericFormatDataBuilder::<f64>::can_parse_line(line));
     ///
     /// for line in [
     ///     "60.5425 2.4E5",
@@ -70,17 +68,22 @@ where
     ///     "81.0704 2.4E6",
     ///     "83.0497 1.7E4"
     /// ] {
-    ///     let parser = MascotGenericFormatDataBuilder::<f64>::default();
-    ///     
-    ///     assert!(parser.can_parse_line(line));
+    ///     assert!(MascotGenericFormatDataBuilder::<f64>::can_parse_line(line));
     /// }
     ///
     /// ```
     ///
-    fn can_parse_line(&self, line: &str) -> bool {
+    fn can_parse_line(line: &str) -> bool {
         line.starts_with("MSLEVEL=")
             || line.starts_with("SPECTYPE=CORRELATED MS")
             || line.contains(' ') && line.split(' ').all(|s| s.parse::<F>().is_ok())
+    }
+
+    /// Returns whether the builder can be built.
+    fn can_build(&self) -> bool {
+        self.level.is_some()
+            && self.mass_divided_by_charge_ratios.len() == self.fragment_intensities.len()
+            && self.mass_divided_by_charge_ratios.len() > 0
     }
 
     /// Parses the line and updates the builder.
@@ -127,9 +130,6 @@ where
         // If we encounter a SPECTYPE line, the MSLEVEL must have already been parsed
         // and it must be equal to 1:
         if line.starts_with("SPECTYPE=CORRELATED MS") {
-            if self.level != Some(FragmentationSpectraLevel::One) {
-                return Err("Could not parse SPECTYPE line: MSLEVEL must be 1".to_string());
-            }
             return Ok(());
         }
 

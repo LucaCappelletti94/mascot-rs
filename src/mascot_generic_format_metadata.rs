@@ -1,5 +1,6 @@
 use crate::prelude::*;
 
+#[derive(Debug, Clone)]
 pub struct MascotGenericFormatMetadata<I, F> {
     feature_id: I,
     parent_ion_mass: F,

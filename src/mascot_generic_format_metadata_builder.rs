@@ -9,6 +9,7 @@ pub struct MascotGenericFormatMetadataBuilder<I, F> {
     parent_ion_mass: Option<F>,
     retention_time: Option<F>,
     charge: Option<Charge>,
+    minus_one_scans: bool,
     merge_scans_metadata_builder: Option<MergeScansMetadataBuilder<I>>,
     filename: Option<String>,
 }
@@ -20,6 +21,7 @@ impl<I, F> Default for MascotGenericFormatMetadataBuilder<I, F> {
             parent_ion_mass: None,
             retention_time: None,
             charge: None,
+            minus_one_scans: false,
             merge_scans_metadata_builder: None,
             filename: None,
         }
@@ -32,6 +34,14 @@ impl<
     > MascotGenericFormatMetadataBuilder<I, F>
 {
     pub fn build(self) -> Result<MascotGenericFormatMetadata<I, F>, String> {
+        if self.minus_one_scans {
+            return Err(concat!(
+                "Could not build MascotGenericFormatMetadata as the scan status is ",
+                "currently set to -1, which indicates a partial read fragment ion spectrum."
+            )
+            .to_string());
+        }
+
         MascotGenericFormatMetadata::new(
             self.feature_id.ok_or_else(|| {
                 "Could not build MascotGenericFormatMetadata: feature_id is missing".to_string()
@@ -54,7 +64,7 @@ impl<
     }
 }
 
-impl<I: FromStr + Eq + Copy, F: FromStr + PartialEq + Copy> LineParser
+impl<I: FromStr + Eq + Copy + Add<Output = I>, F: FromStr + PartialEq + Copy> LineParser
     for MascotGenericFormatMetadataBuilder<I, F>
 {
     /// Returns whether the line can be parsed by this parser.
@@ -81,17 +91,27 @@ impl<I: FromStr + Eq + Copy, F: FromStr + PartialEq + Copy> LineParser
     ///     "FILENAME=20220513_PMA_DBGI_01_04_003.mzML",
     ///     "SCANS=-1",
     /// ] {
-    ///     let parser = MascotGenericFormatMetadataBuilder::<usize, f64>::default();
-    ///     assert!(parser.can_parse_line(line));
+    ///     assert!(MascotGenericFormatMetadataBuilder::<usize, f64>::can_parse_line(line));
     /// }
     /// ```
-    fn can_parse_line(&self, line: &str) -> bool {
+    fn can_parse_line(line: &str) -> bool {
         line.starts_with("FEATURE_ID=")
             || line.starts_with("PEPMASS=")
             || line.starts_with("SCANS=")
             || line.starts_with("RTINSECONDS=")
             || line.starts_with("FILENAME=")
             || line.starts_with("CHARGE=")
+            || MergeScansMetadataBuilder::<I>::can_parse_line(line)
+    }
+
+    /// Returns whether the parser can build a [`MascotGenericFormatMetadata`] from the lines
+    fn can_build(&self) -> bool {
+        self.feature_id.is_some()
+            && self.parent_ion_mass.is_some()
+            && self.retention_time.is_some()
+            && self.charge.is_some()
+            && !self.minus_one_scans
+            && self.merge_scans_metadata_builder.as_ref().map_or(true, |builder| builder.can_build())
     }
 
     /// Parses a line to a [`MascotGenericFormatMetadataBuilder`].
@@ -117,6 +137,8 @@ impl<I: FromStr + Eq + Copy, F: FromStr + PartialEq + Copy> LineParser
     /// parser.digest_line("PEPMASS=381.0795").unwrap();
     /// parser.digest_line("SCANS=1").unwrap();
     /// parser.digest_line("CHARGE=1").unwrap();
+    /// parser.digest_line("MERGED_SCANS=1567,1540");
+    /// parser.digest_line("MERGED_STATS=2 / 2 (0 removed due to low quality, 0 removed due to low cosine).");
     /// parser.digest_line("RTINSECONDS=37.083").unwrap();
     /// parser.digest_line("FILENAME=20220513_PMA_DBGI_01_04_003.mzML").unwrap();
     ///
@@ -196,8 +218,10 @@ impl<I: FromStr + Eq + Copy, F: FromStr + PartialEq + Copy> LineParser
 
         if let Some(stripped) = line.strip_prefix("SCANS=") {
             if stripped == "-1" {
+                self.minus_one_scans = true;
                 return Ok(());
             }
+            self.minus_one_scans = false;
             let scans = I::from_str(stripped).map_err(|_| {
                 format!(
                     "Could not parse SCANS line: could not parse scans: {}",
@@ -269,6 +293,17 @@ impl<I: FromStr + Eq + Copy, F: FromStr + PartialEq + Copy> LineParser
             } else {
                 self.filename = Some(filename);
             }
+            return Ok(());
+        }
+
+        if MergeScansMetadataBuilder::<I>::can_parse_line(line) {
+            if self.merge_scans_metadata_builder.is_none() {
+                self.merge_scans_metadata_builder = Some(MergeScansMetadataBuilder::default());
+            }
+            self.merge_scans_metadata_builder
+                .as_mut()
+                .unwrap()
+                .digest_line(line)?;
             return Ok(());
         }
 

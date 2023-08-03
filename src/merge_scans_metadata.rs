@@ -1,5 +1,6 @@
 use std::{fmt::Debug, ops::Add};
 
+#[derive(Debug, Clone)]
 pub struct MergeScansMetadata<I> {
     scans: Vec<I>,
     removed_due_to_low_quality: I,

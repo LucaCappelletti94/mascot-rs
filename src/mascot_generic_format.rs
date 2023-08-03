@@ -119,10 +119,29 @@ impl<I, F> MGFVec<I, F> {
         F: Copy + StrictlyPositive + FromStr + PartialEq + Debug,
     {
         let file = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        Ok(file
+        Self::from_iter(file
             .lines()
-            .filter(|line| !line.is_empty())
-            .collect::<MGFVec<I, F>>())
+            .filter(|line| !line.is_empty()))
+    }
+
+    pub fn from_iter<'a, T>(iter: T) -> Result<Self, String>
+    where
+        T: IntoIterator<Item = &'a str>,
+        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero,
+        F: Copy + StrictlyPositive + FromStr + PartialEq + Debug,
+    {
+        let mut mascot_generic_formats = MGFVec::new();
+        let mut mascot_generic_format_builder = MascotGenericFormatBuilder::default();
+
+        for line in iter {
+            mascot_generic_format_builder.digest_line(line)?;
+            if mascot_generic_format_builder.can_build() {
+                mascot_generic_formats.push(mascot_generic_format_builder.build()?);
+                mascot_generic_format_builder = MascotGenericFormatBuilder::default();
+            }
+        }
+
+        Ok(mascot_generic_formats)
     }
 
     pub fn push(&mut self, mascot_generic_format: MascotGenericFormat<I, F>) {
@@ -164,14 +183,6 @@ impl<I, F> Default for MGFVec<I, F> {
     }
 }
 
-impl<I, F> From<Vec<MascotGenericFormat<I, F>>> for MGFVec<I, F> {
-    fn from(mascot_generic_formats: Vec<MascotGenericFormat<I, F>>) -> Self {
-        Self {
-            mascot_generic_formats,
-        }
-    }
-}
-
 impl<I, F> Index<usize> for MGFVec<I, F> {
     type Output = MascotGenericFormat<I, F>;
 
@@ -183,36 +194,5 @@ impl<I, F> Index<usize> for MGFVec<I, F> {
 impl<I, F> IndexMut<usize> for MGFVec<I, F> {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         &mut self.mascot_generic_formats[index]
-    }
-}
-
-impl<I, F> IntoIterator for MGFVec<I, F> {
-    type Item = MascotGenericFormat<I, F>;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.mascot_generic_formats.into_iter()
-    }
-}
-
-impl<
-        'a,
-        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero,
-        F: Copy + StrictlyPositive + FromStr + PartialEq + Debug,
-    > FromIterator<&'a str> for MGFVec<I, F>
-{
-    fn from_iter<T: IntoIterator<Item = &'a str>>(iter: T) -> Self {
-        let mut mascot_generic_formats = MGFVec::new();
-        let mut mascot_generic_format_builder = MascotGenericFormatBuilder::default();
-
-        for line in iter {
-            mascot_generic_format_builder.digest_line(line).unwrap();
-            if mascot_generic_format_builder.can_build() {
-                mascot_generic_formats.push(mascot_generic_format_builder.build().unwrap());
-                mascot_generic_format_builder = MascotGenericFormatBuilder::default();
-            }
-        }
-
-        mascot_generic_formats
     }
 }

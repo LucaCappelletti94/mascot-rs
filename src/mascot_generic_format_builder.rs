@@ -10,20 +10,25 @@ pub struct MascotGenericFormatBuilder<I, F> {
     section_open: bool,
 }
 
-impl<I, F> MascotGenericFormatBuilder<I, F>
+impl<I, F> Default for MascotGenericFormatBuilder<I, F>
 where
     I: Copy + Eq + Debug + Add<Output = I> + FromStr + From<usize> + Zero,
-    F: Copy + StrictlyPositive,
+    F: Copy + StrictlyPositive + FromStr + PartialEq + Debug,
 {
-    /// Creates a new [`MascotGenericFormatBuilder`].
-    pub fn new() -> Self {
+    fn default() -> Self {
         Self {
             metadata_builder: MascotGenericFormatMetadataBuilder::default(),
             data_builders: Vec::new(),
             section_open: false,
         }
     }
+}
 
+impl<I, F> MascotGenericFormatBuilder<I, F>
+where
+    I: Copy + Eq + Debug + Add<Output = I> + FromStr + From<usize> + Zero,
+    F: Copy + StrictlyPositive,
+{
     /// Builds a [`MascotGenericFormat`] from the given data.
     pub fn build(self) -> Result<MascotGenericFormat<I, F>, String> {
         Ok(MascotGenericFormat::new(
@@ -71,7 +76,7 @@ where
     /// ```rust
     /// use mascot_rs::prelude::*;
     ///
-    /// let mut mascot_generic_format_builder = MascotGenericFormatBuilder::<usize, f64>::new();
+    /// let mut mascot_generic_format_builder = MascotGenericFormatBuilder::<usize, f64>::default();
     ///
     /// assert!(mascot_generic_format_builder.digest_line("BEGIN IONS").is_ok());
     /// assert!(mascot_generic_format_builder.digest_line("END IONS").is_ok());
@@ -86,20 +91,18 @@ where
             self.section_open = false;
         } else if MascotGenericFormatMetadataBuilder::<I, F>::can_parse_line(line) {
             self.metadata_builder.digest_line(line)?;
+        } else if let Some(data_builder) = self.data_builders.last_mut() {
+            data_builder.digest_line(line)?;
         } else {
-            if let Some(data_builder) = self.data_builders.last_mut() {
-                data_builder.digest_line(line)?;
-            } else {
-                return Err(format!(
-                    concat!(
-                        "While attempting to digest line \"{line}\": no data builder was found, ",
-                        "meaning that the line \"{line}\" was not preceded by \"BEGIN IONS\". ",
-                        "The current object looks like this: {self:?}"
-                    ),
-                    line = line,
-                    self = self
-                ));
-            }
+            return Err(format!(
+                concat!(
+                    "While attempting to digest line \"{line}\": no data builder was found, ",
+                    "meaning that the line \"{line}\" was not preceded by \"BEGIN IONS\". ",
+                    "The current object looks like this: {self:?}"
+                ),
+                line = line,
+                self = self
+            ));
         }
 
         Ok(())

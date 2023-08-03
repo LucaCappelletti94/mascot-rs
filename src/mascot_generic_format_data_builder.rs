@@ -83,7 +83,7 @@ where
     fn can_build(&self) -> bool {
         self.level.is_some()
             && self.mass_divided_by_charge_ratios.len() == self.fragment_intensities.len()
-            && self.mass_divided_by_charge_ratios.len() > 0
+            && !self.mass_divided_by_charge_ratios.is_empty()
     }
 
     /// Parses the line and updates the builder.

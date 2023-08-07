@@ -178,7 +178,7 @@ impl<I, F> MGFVec<I, F> {
     pub fn from_path(path: &str) -> Result<Self, String>
     where
         I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash,
-        F: Copy + StrictlyPositive + FromStr + PartialEq + Debug + PartialOrd,
+        F: Copy + StrictlyPositive + FromStr + PartialEq + Debug + PartialOrd + NaN,
     {
         let file = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         Self::try_from_iter(file.lines().filter(|line| !line.is_empty()))
@@ -188,7 +188,7 @@ impl<I, F> MGFVec<I, F> {
     where
         T: IntoIterator<Item = &'a str>,
         I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash,
-        F: Copy + StrictlyPositive + FromStr + PartialEq + Debug + PartialOrd,
+        F: Copy + StrictlyPositive + FromStr + PartialEq + Debug + PartialOrd + NaN,
     {
         let mut mascot_generic_formats = MGFVec::new();
         let mut mascot_generic_format_builder = MascotGenericFormatBuilder::default();

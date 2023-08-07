@@ -44,7 +44,7 @@ where
 impl<I, F> LineParser for MascotGenericFormatBuilder<I, F>
 where
     I: Copy + FromStr + Eq + Add<Output = I> + Debug,
-    F: Copy + StrictlyPositive + FromStr + PartialEq + Debug,
+    F: Copy + StrictlyPositive + FromStr + PartialEq + Debug + NaN,
 {
     fn can_parse_line(line: &str) -> bool {
         line == "BEGIN IONS"

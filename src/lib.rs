@@ -12,6 +12,7 @@ pub mod mascot_generic_format_metadata_builder;
 pub mod line_parser;
 pub mod strictly_positive;
 pub mod zero;
+pub mod nan;
 
 pub mod prelude {
     pub use crate::charge::Charge;
@@ -28,4 +29,5 @@ pub mod prelude {
     pub use crate::line_parser::LineParser;
     pub use crate::strictly_positive::StrictlyPositive;
     pub use crate::zero::Zero;
+    pub use crate::nan::NaN;
 }

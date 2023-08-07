@@ -32,7 +32,7 @@ impl<F: PartialEq + PartialOrd + Copy> MascotGenericFormatDataBuilder<F> {
 
 impl<F> LineParser for MascotGenericFormatDataBuilder<F>
 where
-    F: FromStr,
+    F: FromStr + NaN,
 {
     /// Returns whether the line can be parsed by this parser.
     ///
@@ -148,6 +148,30 @@ where
             .ok_or_else(|| "Could not parse fragment intensity".to_string())?
             .parse::<F>()
             .map_err(|_| "Could not parse fragment intensity".to_string())?;
+
+        if mass_divided_by_charge_ratio.is_nan() {
+            return Err(
+                format!(
+                    concat!(
+                        "The mass divided by charge ratio provided in the ",
+                        "line \"{}\" was interpreted as a NaN."
+                    ),
+                    line
+                )
+            );
+        }
+
+        if fragment_intensity.is_nan() {
+            return Err(
+                format!(
+                    concat!(
+                        "The fragment intensity provided in the ",
+                        "line \"{}\" was interpreted as a NaN."
+                    ),
+                    line
+                )
+            );
+        }
 
         // We add the values to the vectors:
         self.mass_divided_by_charge_ratios.push(mass_divided_by_charge_ratio);

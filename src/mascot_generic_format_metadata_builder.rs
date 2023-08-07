@@ -64,7 +64,7 @@ impl<
     }
 }
 
-impl<I: FromStr + Eq + Copy + Add<Output = I>, F: FromStr + PartialEq + Copy> LineParser
+impl<I: FromStr + Eq + Copy + Add<Output = I>, F: FromStr + PartialEq + Copy + NaN> LineParser
     for MascotGenericFormatMetadataBuilder<I, F>
 {
     /// Returns whether the line can be parsed by this parser.
@@ -203,6 +203,17 @@ impl<I: FromStr + Eq + Copy + Add<Output = I>, F: FromStr + PartialEq + Copy> Li
                     line
                 )
             })?;
+            if parent_ion_mass.is_nan() {
+                return Err(
+                    format!(
+                        concat!(
+                            "The provided line \"{}\" contains a parent ion mass ",
+                            "that has been interpreted as a NaN."
+                        ),
+                        line
+                    )
+                );
+            }
             if let Some(observerd_parent_ion_mass) = self.parent_ion_mass {
                 if parent_ion_mass != observerd_parent_ion_mass {
                     return Err(format!(
@@ -268,6 +279,17 @@ impl<I: FromStr + Eq + Copy + Add<Output = I>, F: FromStr + PartialEq + Copy> Li
                     line
                 )
             })?;
+            if retention_time.is_nan() {
+                return Err(
+                    format!(
+                        concat!(
+                            "The provided line \"{}\" contains a retention time ",
+                            "that has been interpreted as a NaN."
+                        ),
+                        line
+                    )
+                );
+            }
             if let Some(observed_retention_time) = self.retention_time {
                 if observed_retention_time != retention_time {
                     return Err(format!(

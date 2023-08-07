@@ -64,8 +64,10 @@ impl<
     }
 }
 
-impl<I: FromStr + Eq + Copy + Add<Output = I>, F: FromStr + PartialEq + Copy + NaN> LineParser
-    for MascotGenericFormatMetadataBuilder<I, F>
+impl<
+        I: FromStr + Eq + Copy + Add<Output = I>,
+        F: FromStr + PartialEq + Copy + NaN + StrictlyPositive,
+    > LineParser for MascotGenericFormatMetadataBuilder<I, F>
 {
     /// Returns whether the line can be parsed by this parser.
     ///
@@ -111,7 +113,10 @@ impl<I: FromStr + Eq + Copy + Add<Output = I>, F: FromStr + PartialEq + Copy + N
             && self.retention_time.is_some()
             && self.charge.is_some()
             && !self.minus_one_scans
-            && self.merge_scans_metadata_builder.as_ref().map_or(true, |builder| builder.can_build())
+            && self
+                .merge_scans_metadata_builder
+                .as_ref()
+                .map_or(true, |builder| builder.can_build())
     }
 
     /// Parses a line to a [`MascotGenericFormatMetadataBuilder`].
@@ -204,15 +209,23 @@ impl<I: FromStr + Eq + Copy + Add<Output = I>, F: FromStr + PartialEq + Copy + N
                 )
             })?;
             if parent_ion_mass.is_nan() {
-                return Err(
-                    format!(
-                        concat!(
-                            "The provided line \"{}\" contains a parent ion mass ",
-                            "that has been interpreted as a NaN."
-                        ),
-                        line
-                    )
-                );
+                return Err(format!(
+                    concat!(
+                        "The provided line \"{}\" contains a parent ion mass ",
+                        "that has been interpreted as a NaN."
+                    ),
+                    line
+                ));
+            }
+            if !parent_ion_mass.is_strictly_positive() {
+                return Err(format!(
+                    concat!(
+                        "The provided line \"{}\" contains a parent ion mass ",
+                        "that has been interpreted as a zero or negative value. ",
+                        "The parent ion mass must be a strictly positive value."
+                    ),
+                    line
+                ));
             }
             if let Some(observerd_parent_ion_mass) = self.parent_ion_mass {
                 if parent_ion_mass != observerd_parent_ion_mass {
@@ -280,15 +293,23 @@ impl<I: FromStr + Eq + Copy + Add<Output = I>, F: FromStr + PartialEq + Copy + N
                 )
             })?;
             if retention_time.is_nan() {
-                return Err(
-                    format!(
-                        concat!(
-                            "The provided line \"{}\" contains a retention time ",
-                            "that has been interpreted as a NaN."
-                        ),
-                        line
-                    )
-                );
+                return Err(format!(
+                    concat!(
+                        "The provided line \"{}\" contains a retention time ",
+                        "that has been interpreted as a NaN."
+                    ),
+                    line
+                ));
+            }
+            if !retention_time.is_strictly_positive() {
+                return Err(format!(
+                    concat!(
+                        "The provided line \"{}\" contains a retention time ",
+                        "that has been interpreted as a zero or negative value. ",
+                        "The retention time must be a strictly positive value."
+                    ),
+                    line
+                ));
             }
             if let Some(observed_retention_time) = self.retention_time {
                 if observed_retention_time != retention_time {

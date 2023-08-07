@@ -32,7 +32,7 @@ impl<F: PartialEq + PartialOrd + Copy> MascotGenericFormatDataBuilder<F> {
 
 impl<F> LineParser for MascotGenericFormatDataBuilder<F>
 where
-    F: FromStr + NaN,
+    F: FromStr + NaN + StrictlyPositive,
 {
     /// Returns whether the line can be parsed by this parser.
     ///
@@ -161,6 +161,17 @@ where
             );
         }
 
+        if !mass_divided_by_charge_ratio.is_strictly_positive() {
+            return Err(format!(
+                concat!(
+                    "The provided line \"{}\" contains a mass divided by charge ratio ",
+                    "that has been interpreted as a zero or negative value. ",
+                    "The mass divided by charge ratio must be a strictly positive value."
+                ),
+                line
+            ));
+        }
+
         if fragment_intensity.is_nan() {
             return Err(
                 format!(
@@ -171,6 +182,17 @@ where
                     line
                 )
             );
+        }
+
+        if !fragment_intensity.is_strictly_positive() {
+            return Err(format!(
+                concat!(
+                    "The provided line \"{}\" contains a fragment intensity ",
+                    "that has been interpreted as a zero or negative value. ",
+                    "The fragment intensity must be a strictly positive value."
+                ),
+                line
+            ));
         }
 
         // We add the values to the vectors:

@@ -77,8 +77,7 @@ impl<
         if let Some(mgf) = self
             .data
             .iter()
-            .filter(|mgf| mgf.level() == FragmentationSpectraLevel::One)
-            .next()
+            .find(|mgf| mgf.level() == FragmentationSpectraLevel::One)
         {
             Ok(mgf)
         } else {
@@ -95,8 +94,7 @@ impl<
         if let Some(mgf) = self
             .data
             .iter()
-            .filter(|mgf| mgf.level() == FragmentationSpectraLevel::Two)
-            .next()
+            .find(|mgf| mgf.level() == FragmentationSpectraLevel::Two)
         {
             Ok(mgf)
         } else {

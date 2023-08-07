@@ -20,7 +20,7 @@ impl<F> Default for MascotGenericFormatDataBuilder<F> {
     }
 }
 
-impl<F> MascotGenericFormatDataBuilder<F> {
+impl<F: PartialEq + PartialOrd + Copy> MascotGenericFormatDataBuilder<F> {
     pub fn build(self) -> Result<MascotGenericFormatData<F>, String> {
         MascotGenericFormatData::new(
             self.level.ok_or_else(|| "Could not build MascotGenericFormatData: level is missing".to_string())?,

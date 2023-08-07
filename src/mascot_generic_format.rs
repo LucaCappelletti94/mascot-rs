@@ -1,5 +1,7 @@
 use crate::prelude::*;
+use std::collections::HashSet;
 use std::fmt::Debug;
+use std::hash::Hash;
 use std::ops::{Add, Index, IndexMut};
 use std::str::FromStr;
 
@@ -9,14 +11,40 @@ pub struct MascotGenericFormat<I, F> {
     data: Vec<MascotGenericFormatData<F>>,
 }
 
-impl<I: Copy + Zero + PartialEq + Debug + Add<Output = I> + Eq, F: Copy + StrictlyPositive>
-    MascotGenericFormat<I, F>
+impl<
+        I: Copy + Zero + PartialEq + Debug + Add<Output = I> + Eq,
+        F: Copy + StrictlyPositive + PartialEq + PartialOrd + Debug,
+    > MascotGenericFormat<I, F>
 {
     pub fn new(
         metadata: MascotGenericFormatMetadata<I, F>,
         data: Vec<MascotGenericFormatData<F>>,
-    ) -> Self {
-        Self { metadata, data }
+    ) -> Result<Self, String> {
+        // We need to check that, if the data provided is compatible with
+        // the metadata provided. Specifically, if the minimum MSLEVEL
+        // of the data is equal to one, then the PEPMASS must be equal to
+        // the minimum mass value reported in the data associated to the
+        // first level.
+        let mgf = Self { metadata, data };
+
+        if let Ok(first_mgf) = mgf.get_first_fragmentation_level() {
+            if mgf.parent_ion_mass() != first_mgf.min_mass_divided_by_charge_ratio() {
+                return Err(format!(
+                    concat!(
+                        "When the MGF contains data relative to fragmentation level one, ",
+                        "it is necessary for the parent ion mass entry in the metadata (PEPMASS) ",
+                        "to be equal to the minimum mass ratio reported in the data of the associated ",
+                        "first fragmentation level. In this case, we encounted a metadata pepmass ",
+                        "of {:?}, while the minimum mass-charge ratio was {:?}. This may be a data bug ",
+                        "derived from how the file was created."
+                    ),
+                    mgf.parent_ion_mass(),
+                    first_mgf.min_mass_divided_by_charge_ratio()
+                ));
+            }
+        }
+
+        Ok(mgf)
     }
 
     /// Returns the feature ID of the metadata.
@@ -44,14 +72,50 @@ impl<I: Copy + Zero + PartialEq + Debug + Add<Output = I> + Eq, F: Copy + Strict
         self.metadata.filename()
     }
 
+    /// Returns a reference to the first fragmentation level, if available.
+    pub fn get_first_fragmentation_level(&self) -> Result<&MascotGenericFormatData<F>, String> {
+        if let Some(mgf) = self
+            .data
+            .iter()
+            .filter(|mgf| mgf.level() == FragmentationSpectraLevel::One)
+            .next()
+        {
+            Ok(mgf)
+        } else {
+            Err(concat!(
+                "There is no first fragmentation level available for the ",
+                "corrent mascot fragmentation object."
+            )
+            .to_string())
+        }
+    }
+
+    /// Returns a reference to the second fragmentation level, if available.
+    pub fn get_second_fragmentation_level(&self) -> Result<&MascotGenericFormatData<F>, String> {
+        if let Some(mgf) = self
+            .data
+            .iter()
+            .filter(|mgf| mgf.level() == FragmentationSpectraLevel::Two)
+            .next()
+        {
+            Ok(mgf)
+        } else {
+            Err(concat!(
+                "There is no second fragmentation level available for the ",
+                "corrent mascot fragmentation object."
+            )
+            .to_string())
+        }
+    }
+
     /// Returns the minimum fragmentation level.
-    pub fn min_fragmentation_level(&self) -> Option<FragmentationSpectraLevel> {
-        self.data.iter().map(|d| d.level()).min()
+    pub fn min_fragmentation_level(&self) -> FragmentationSpectraLevel {
+        self.data.iter().map(|d| d.level()).min().unwrap()
     }
 
     /// Returns the maximum fragmentation level.
-    pub fn max_fragmentation_level(&self) -> Option<FragmentationSpectraLevel> {
-        self.data.iter().map(|d| d.level()).max()
+    pub fn max_fragmentation_level(&self) -> FragmentationSpectraLevel {
+        self.data.iter().map(|d| d.level()).max().unwrap()
     }
 }
 
@@ -115,20 +179,18 @@ impl<I, F> MGFVec<I, F> {
     ///
     pub fn from_path(path: &str) -> Result<Self, String>
     where
-        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero,
-        F: Copy + StrictlyPositive + FromStr + PartialEq + Debug,
+        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash,
+        F: Copy + StrictlyPositive + FromStr + PartialEq + Debug + PartialOrd,
     {
         let file = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        Self::try_from_iter(file
-            .lines()
-            .filter(|line| !line.is_empty()))
+        Self::try_from_iter(file.lines().filter(|line| !line.is_empty()))
     }
 
     pub fn try_from_iter<'a, T>(iter: T) -> Result<Self, String>
     where
         T: IntoIterator<Item = &'a str>,
-        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero,
-        F: Copy + StrictlyPositive + FromStr + PartialEq + Debug,
+        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash,
+        F: Copy + StrictlyPositive + FromStr + PartialEq + Debug + PartialOrd,
     {
         let mut mascot_generic_formats = MGFVec::new();
         let mut mascot_generic_format_builder = MascotGenericFormatBuilder::default();
@@ -139,6 +201,24 @@ impl<I, F> MGFVec<I, F> {
                 mascot_generic_formats.push(mascot_generic_format_builder.build()?);
                 mascot_generic_format_builder = MascotGenericFormatBuilder::default();
             }
+        }
+
+        // We check that the feature id values are unique.
+        let number_of_unique_feature_ids = mascot_generic_formats
+            .iter()
+            .map(|mgf| mgf.feature_id())
+            .collect::<HashSet<I>>()
+            .len();
+        if number_of_unique_feature_ids != mascot_generic_formats.len() {
+            return Err(format!(
+                concat!(
+                    "We have identified {} duplicated feature ids in the MGF document provided. ",
+                    "Specifically, there were {} entries, but only {} unique feature IDs."
+                ),
+                mascot_generic_formats.len() - number_of_unique_feature_ids,
+                mascot_generic_formats.len(),
+                number_of_unique_feature_ids
+            ));
         }
 
         Ok(mascot_generic_formats)

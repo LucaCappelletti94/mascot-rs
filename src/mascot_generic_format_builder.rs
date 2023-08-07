@@ -27,17 +27,17 @@ where
 impl<I, F> MascotGenericFormatBuilder<I, F>
 where
     I: Copy + Eq + Debug + Add<Output = I> + FromStr + From<usize> + Zero,
-    F: Copy + StrictlyPositive,
+    F: Copy + StrictlyPositive + PartialEq + PartialOrd + Debug,
 {
     /// Builds a [`MascotGenericFormat`] from the given data.
     pub fn build(self) -> Result<MascotGenericFormat<I, F>, String> {
-        Ok(MascotGenericFormat::new(
+        MascotGenericFormat::new(
             self.metadata_builder.build()?,
             self.data_builders
                 .into_iter()
                 .map(|builder| builder.build())
                 .collect::<Result<Vec<_>, String>>()?,
-        ))
+        )
     }
 }
 

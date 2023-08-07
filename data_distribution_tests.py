@@ -19,7 +19,7 @@ def task(args):
             distribution,
             datapoints,
             fit_params=fitted.params._asdict(),
-            #n_mc_samples=1000
+            n_mc_samples=1000
         )
         pvalue = goodness.pvalue
         statistic = goodness.statistic

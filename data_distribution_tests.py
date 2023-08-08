@@ -1,6 +1,7 @@
 """Script to evaluate which distributions may be used to model the data."""
 from glob import glob
 from multiprocessing import Pool, cpu_count
+import matplotlib.pyplot as plt
 from time import time
 
 import numpy as np
@@ -14,16 +15,18 @@ def task(args):
     distribution, datapoints, data_name = args
     start = time()
     try:
-        fitted = scipy.stats.fit(distribution, datapoints)
         goodness = scipy.stats.goodness_of_fit(
             distribution,
             datapoints,
-            fit_params=fitted.params._asdict(),
             n_mc_samples=1000
         )
         pvalue = goodness.pvalue
         statistic = goodness.statistic
-        parameters = fitted.params._asdict()
+        parameters = goodness.fit_result.params._asdict()
+        fig, axes = plt.subplots(1, 1, figsize=(10, 10), dpi=300)
+        goodness.fit_result.plot()
+        fig.savefig(f"tests/distributions/{distribution.name}_{data_name}.png")
+        plt.close(fig)
     except Exception as _exception:
         pvalue = 1.0
         statistic = np.inf

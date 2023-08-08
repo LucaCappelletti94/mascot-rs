@@ -77,7 +77,6 @@ if __name__ == "__main__":
         scipy.stats.chi2,
         scipy.stats.dgamma,
         scipy.stats.dweibull,
-        scipy.stats.erlang,
         scipy.stats.expon,
         scipy.stats.exponweib,
         scipy.stats.exponpow,

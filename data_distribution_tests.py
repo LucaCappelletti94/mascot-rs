@@ -13,20 +13,20 @@ from tqdm.auto import tqdm
 
 def task(args):
     """Test a distribution on a data set."""
-    distribution, datapoints, data_name = args
+    distribution, datapoints, data_name, n_mc_samples = args
     start = time()
     try:
         goodness = scipy.stats.goodness_of_fit(
             distribution,
             datapoints,
-            n_mc_samples=1000
+            n_mc_samples=n_mc_samples
         )
         pvalue = goodness.pvalue
         statistic = goodness.statistic
         parameters = goodness.fit_result.params._asdict()
         fig, axes = plt.subplots(1, 1, figsize=(10, 10), dpi=300)
         goodness.fit_result.plot()
-        fig.savefig(f"distributions/{distribution.name}_{data_name}.png")
+        fig.savefig(f"distributions/{distribution.name}_{data_name}_{n_mc_samples}.png")
         plt.close(fig)
     except Exception as _exception:
         pvalue = 1.0
@@ -45,6 +45,7 @@ def task(args):
 if __name__ == "__main__":
     masses = []
     intensities = []
+    n_mc_samples=1000
 
     for path in glob("tests/data/*.mgf"):
         with open(path, "r", encoding="utf8") as f:
@@ -150,7 +151,7 @@ if __name__ == "__main__":
             p.imap(
                 task,
                 (
-                    (distribution, data, data_name)
+                    (distribution, data, data_name, n_mc_samples)
                     for distribution in distributions
                     for data, data_name in ((masses, "Masses"), (intensities, "Intensities"))
                 )
@@ -161,4 +162,4 @@ if __name__ == "__main__":
         ))
             
     results = pd.DataFrame(results)
-    results.to_csv("data_distribution_tests.csv", index=False)
+    results.to_csv(f"data_distribution_tests_{n_mc_samples}.csv", index=False)

@@ -1,9 +1,10 @@
 """Script to evaluate which distributions may be used to model the data."""
+import os
 from glob import glob
 from multiprocessing import Pool, cpu_count
-import matplotlib.pyplot as plt
 from time import time
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import scipy
@@ -25,7 +26,7 @@ def task(args):
         parameters = goodness.fit_result.params._asdict()
         fig, axes = plt.subplots(1, 1, figsize=(10, 10), dpi=300)
         goodness.fit_result.plot()
-        fig.savefig(f"tests/distributions/{distribution.name}_{data_name}.png")
+        fig.savefig(f"distributions/{distribution.name}_{data_name}.png")
         plt.close(fig)
     except Exception as _exception:
         pvalue = 1.0
@@ -143,6 +144,7 @@ if __name__ == "__main__":
         scipy.stats.weibull_min,
         scipy.stats.wrapcauchy,
     )
+    os.makedirs("distributions", exist_ok=True)
     with Pool(cpu_count()) as p:
         results = list(tqdm(
             p.imap(

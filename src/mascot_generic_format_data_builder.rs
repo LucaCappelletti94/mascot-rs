@@ -1,4 +1,4 @@
-use std::str::FromStr;
+use std::{fmt::Debug, str::FromStr};
 
 use crate::prelude::*;
 
@@ -20,19 +20,33 @@ impl<F> Default for MascotGenericFormatDataBuilder<F> {
     }
 }
 
-impl<F: PartialEq + PartialOrd + Copy> MascotGenericFormatDataBuilder<F> {
+impl<F: PartialEq + PartialOrd + Copy + Debug> MascotGenericFormatDataBuilder<F> {
     pub fn build(self) -> Result<MascotGenericFormatData<F>, String> {
         MascotGenericFormatData::new(
-            self.level.ok_or_else(|| "Could not build MascotGenericFormatData: level is missing".to_string())?,
+            self.level.ok_or_else(|| {
+                "Could not build MascotGenericFormatData: level is missing".to_string()
+            })?,
             self.mass_divided_by_charge_ratios,
             self.fragment_intensities,
         )
+    }
+
+    /// Returns whether the level is equal to two.
+    ///
+    /// # Raises
+    /// Raises an error if the level has not been set.
+    pub fn is_level_two(&self) -> Result<bool, String> {
+        match self.level {
+            Some(FragmentationSpectraLevel::Two) => Ok(true),
+            Some(FragmentationSpectraLevel::One) => Ok(false),
+            None => Err("Could not determine whether the level is equal to two: the level has not been set.".to_string()),
+        }
     }
 }
 
 impl<F> LineParser for MascotGenericFormatDataBuilder<F>
 where
-    F: FromStr + NaN + StrictlyPositive,
+    F: FromStr + NaN + StrictlyPositive + PartialOrd + Debug + Copy,
 {
     /// Returns whether the line can be parsed by this parser.
     ///
@@ -50,9 +64,9 @@ where
     /// let line = "MSLEVEL=1";
     ///
     /// assert!(MascotGenericFormatDataBuilder::<f64>::can_parse_line(line));
-    /// 
+    ///
     /// let line = "SPECTYPE=CORRELATED MS";
-    /// 
+    ///
     /// assert!(MascotGenericFormatDataBuilder::<f64>::can_parse_line(line));
     ///
     /// let line = "TITLE=File:";
@@ -100,13 +114,13 @@ where
     /// let mut parser = MascotGenericFormatDataBuilder::<f64>::default();
     ///
     /// parser.digest_line(line).is_err();
-    /// 
+    ///
     /// let line = "MSLEVEL=1";
     /// let mut parser = MascotGenericFormatDataBuilder::<f64>::default();
-    /// 
+    ///
     /// parser.digest_line(line).unwrap();
     /// parser.digest_line("SPECTYPE=CORRELATED MS").unwrap();
-    /// 
+    ///
     /// let mut parser = MascotGenericFormatDataBuilder::<f64>::default();
     ///
     /// parser.digest_line("MSLEVEL=1");
@@ -114,7 +128,7 @@ where
     /// parser.digest_line("119.0857 3.3E5");
     ///
     /// let mascot_generic_format_data = parser.build().unwrap();
-    /// 
+    ///
     /// assert_eq!(mascot_generic_format_data.level(), FragmentationSpectraLevel::One);
     /// assert_eq!(mascot_generic_format_data.mass_divided_by_charge_ratios(), &[60.5425, 119.0857]);
     /// assert_eq!(mascot_generic_format_data.fragment_intensities(), &[2.4E5, 3.3E5]);
@@ -150,15 +164,13 @@ where
             .map_err(|_| "Could not parse fragment intensity".to_string())?;
 
         if mass_divided_by_charge_ratio.is_nan() {
-            return Err(
-                format!(
-                    concat!(
-                        "The mass divided by charge ratio provided in the ",
-                        "line \"{}\" was interpreted as a NaN."
-                    ),
-                    line
-                )
-            );
+            return Err(format!(
+                concat!(
+                    "The mass divided by charge ratio provided in the ",
+                    "line \"{}\" was interpreted as a NaN."
+                ),
+                line
+            ));
         }
 
         if !mass_divided_by_charge_ratio.is_strictly_positive() {
@@ -173,15 +185,13 @@ where
         }
 
         if fragment_intensity.is_nan() {
-            return Err(
-                format!(
-                    concat!(
-                        "The fragment intensity provided in the ",
-                        "line \"{}\" was interpreted as a NaN."
-                    ),
-                    line
-                )
-            );
+            return Err(format!(
+                concat!(
+                    "The fragment intensity provided in the ",
+                    "line \"{}\" was interpreted as a NaN."
+                ),
+                line
+            ));
         }
 
         if !fragment_intensity.is_strictly_positive() {
@@ -195,8 +205,30 @@ where
             ));
         }
 
+        // We check that the value of the mass divided by charge ratio is larger
+        // or equal to the previous value:
+        if let Some(previous_mass_divided_by_charge_ratio) =
+            self.mass_divided_by_charge_ratios.last()
+        {
+            if self.is_level_two()?
+                && *previous_mass_divided_by_charge_ratio > mass_divided_by_charge_ratio
+            {
+                return Err(format!(
+                    concat!(
+                        "The mass divided by charge ratio provided in the ",
+                        "line \"{}\" was smaller than the previous value. ",
+                        "The mass divided by charge ratio must be provided in ",
+                        "ascending order. The current value is {:?}, while the ",
+                        "previous value was {:?}."
+                    ),
+                    line, mass_divided_by_charge_ratio, previous_mass_divided_by_charge_ratio
+                ));
+            }
+        }
+
         // We add the values to the vectors:
-        self.mass_divided_by_charge_ratios.push(mass_divided_by_charge_ratio);
+        self.mass_divided_by_charge_ratios
+            .push(mass_divided_by_charge_ratio);
         self.fragment_intensities.push(fragment_intensity);
 
         Ok(())

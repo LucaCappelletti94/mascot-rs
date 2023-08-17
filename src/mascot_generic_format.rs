@@ -2,7 +2,7 @@ use crate::prelude::*;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
-use std::ops::{Add, Index, IndexMut};
+use std::ops::{Add, Index, IndexMut, Sub};
 use std::str::FromStr;
 
 #[derive(Debug, Clone)]
@@ -13,7 +13,13 @@ pub struct MascotGenericFormat<I, F> {
 
 impl<
         I: Copy + Zero + PartialEq + Debug + Add<Output = I> + Eq,
-        F: Copy + StrictlyPositive + PartialEq + PartialOrd + Debug,
+        F: Copy
+            + StrictlyPositive
+            + PartialEq
+            + PartialOrd
+            + Debug
+            + Add<F, Output = F>
+            + Sub<F, Output = F>,
     > MascotGenericFormat<I, F>
 {
     pub fn new(
@@ -106,6 +112,42 @@ impl<
         }
     }
 
+    /// Returns iterator over the mass over charge ratios of the first fragmentation level.
+    pub fn first_fragmentation_level_mass_divided_by_charge_ratios_iter(
+        &self,
+    ) -> Result<std::slice::Iter<F>, String> {
+        Ok(self
+            .get_first_fragmentation_level()?
+            .mass_divided_by_charge_ratios_iter())
+    }
+
+    /// Returns iterator over the mass over charge ratios of the second fragmentation level.
+    pub fn second_fragmentation_level_mass_divided_by_charge_ratios_iter(
+        &self,
+    ) -> Result<std::slice::Iter<F>, String> {
+        Ok(self
+            .get_second_fragmentation_level()?
+            .mass_divided_by_charge_ratios_iter())
+    }
+
+    /// Returns iterator over the intensities of the first fragmentation level.
+    pub fn first_fragmentation_level_intensities_iter(
+        &self,
+    ) -> Result<std::slice::Iter<F>, String> {
+        Ok(self
+            .get_first_fragmentation_level()?
+            .fragment_intensities_iter())
+    }
+
+    /// Returns iterator over the intensities of the second fragmentation level.
+    pub fn second_fragmentation_level_intensities_iter(
+        &self,
+    ) -> Result<std::slice::Iter<F>, String> {
+        Ok(self
+            .get_second_fragmentation_level()?
+            .fragment_intensities_iter())
+    }
+
     /// Returns the minimum fragmentation level.
     pub fn min_fragmentation_level(&self) -> FragmentationSpectraLevel {
         self.data.iter().map(|d| d.level()).min().unwrap()
@@ -114,6 +156,61 @@ impl<
     /// Returns the maximum fragmentation level.
     pub fn max_fragmentation_level(&self) -> FragmentationSpectraLevel {
         self.data.iter().map(|d| d.level()).max().unwrap()
+    }
+
+    /// Returns whether the current MGF has second level fragmentation data.
+    pub fn has_second_level(&self) -> bool {
+        self.max_fragmentation_level() == FragmentationSpectraLevel::Two
+    }
+
+    /// Returns indices associated to matching mass-charge ratios of the second level.
+    ///
+    /// # Arguments
+    /// * `other` - The other [`MascotGenericFormat`] object.
+    /// * `tolerance` - The tolerance to use when matching mass-charge ratios.
+    /// * `shift` - The shift to apply to the mass-charge ratios of the other
+    ///
+    /// # Safety
+    /// This function is unsafe because it does not check that the
+    /// mass-charge ratios are sorted in ascending order. The results
+    /// when the requirement is not met are undefined. Also, it does not
+    /// check whether the MGF files have a second level.
+    pub fn find_sorted_matches(
+        &self,
+        other: &MascotGenericFormat<I, F>,
+        tolerance: F,
+        shift: F,
+    ) -> Result<Vec<(usize, usize)>, String> {
+        let mut matches = Vec::new();
+        let mut lowest_index = 0;
+
+        for (i, first_mz) in self
+            .second_fragmentation_level_mass_divided_by_charge_ratios_iter()?
+            .copied()
+            .enumerate()
+        {
+            let low_bound = first_mz - tolerance;
+            let high_bound = first_mz + tolerance;
+
+            for (j, shifted_second_mz) in other
+                .second_fragmentation_level_mass_divided_by_charge_ratios_iter()?
+                .skip(lowest_index)
+                .copied()
+                .map(|second_mz| second_mz + shift)
+                .enumerate()
+            {
+                if shifted_second_mz > high_bound {
+                    break;
+                }
+                if shifted_second_mz < low_bound {
+                    lowest_index = j;
+                    continue;
+                }
+                matches.push((i, j));
+            }
+        }
+
+        Ok(matches)
     }
 }
 
@@ -178,7 +275,15 @@ impl<I, F> MGFVec<I, F> {
     pub fn from_path(path: &str) -> Result<Self, String>
     where
         I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash,
-        F: Copy + StrictlyPositive + FromStr + PartialEq + Debug + PartialOrd + NaN,
+        F: Copy
+            + StrictlyPositive
+            + FromStr
+            + PartialEq
+            + Debug
+            + PartialOrd
+            + NaN
+            + Sub<F, Output = F>
+            + Add<F, Output = F>,
     {
         let file = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         Self::try_from_iter(file.lines().filter(|line| !line.is_empty()))
@@ -188,7 +293,15 @@ impl<I, F> MGFVec<I, F> {
     where
         T: IntoIterator<Item = &'a str>,
         I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash,
-        F: Copy + StrictlyPositive + FromStr + PartialEq + Debug + PartialOrd + NaN,
+        F: Copy
+            + StrictlyPositive
+            + FromStr
+            + PartialEq
+            + Debug
+            + PartialOrd
+            + NaN
+            + Sub<F, Output = F>
+            + Add<F, Output = F>,
     {
         let mut mascot_generic_formats = MGFVec::new();
         let mut mascot_generic_format_builder = MascotGenericFormatBuilder::default();

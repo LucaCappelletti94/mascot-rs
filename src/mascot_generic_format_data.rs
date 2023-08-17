@@ -95,6 +95,11 @@ impl<F: PartialOrd + Copy> MascotGenericFormatData<F> {
         &self.mass_divided_by_charge_ratios
     }
 
+    /// Returns iterator over the mass divided by charge ratios of the data.
+    pub fn mass_divided_by_charge_ratios_iter(&self) -> std::slice::Iter<F> {
+        self.mass_divided_by_charge_ratios.iter()
+    }
+
     /// Return the minimum mass divided by charge ratio.
     pub fn min_mass_divided_by_charge_ratio(&self) -> F {
         *(self
@@ -116,5 +121,10 @@ impl<F: PartialOrd + Copy> MascotGenericFormatData<F> {
     /// Returns the fragment intensities of the data.
     pub fn fragment_intensities(&self) -> &[F] {
         &self.fragment_intensities
+    }
+
+    /// Returns iterator over the fragment intensities of the data.
+    pub fn fragment_intensities_iter(&self) -> std::slice::Iter<F> {
+        self.fragment_intensities.iter()
     }
 }

@@ -1,4 +1,4 @@
-use std::{fmt::Debug, ops::Add, str::FromStr};
+use std::{fmt::Debug, ops::Add, ops::Sub, str::FromStr};
 
 use crate::prelude::*;
 
@@ -27,7 +27,13 @@ where
 impl<I, F> MascotGenericFormatBuilder<I, F>
 where
     I: Copy + Eq + Debug + Add<Output = I> + FromStr + From<usize> + Zero,
-    F: Copy + StrictlyPositive + PartialEq + PartialOrd + Debug,
+    F: Copy
+        + StrictlyPositive
+        + PartialEq
+        + PartialOrd
+        + Debug
+        + Sub<F, Output = F>
+        + Add<F, Output = F>,
 {
     /// Builds a [`MascotGenericFormat`] from the given data.
     pub fn build(self) -> Result<MascotGenericFormat<I, F>, String> {
@@ -44,7 +50,7 @@ where
 impl<I, F> LineParser for MascotGenericFormatBuilder<I, F>
 where
     I: Copy + FromStr + Eq + Add<Output = I> + Debug,
-    F: Copy + StrictlyPositive + FromStr + PartialEq + Debug + NaN,
+    F: Copy + StrictlyPositive + FromStr + PartialEq + Debug + NaN + PartialOrd,
 {
     fn can_parse_line(line: &str) -> bool {
         line == "BEGIN IONS"

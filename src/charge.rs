@@ -2,6 +2,7 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Charge {
+    Zero,
     One,
     OnePlus,
     Two,
@@ -26,6 +27,7 @@ impl FromStr for Charge {
     /// use mascot_rs::prelude::*;
     /// use std::str::FromStr;
     /// 
+    /// assert_eq!(Charge::from_str("CHARGE=0").unwrap(), Charge::One);
     /// assert_eq!(Charge::from_str("CHARGE=1").unwrap(), Charge::One);
     /// assert_eq!(Charge::from_str("CHARGE=1+").unwrap(), Charge::OnePlus);
     /// assert_eq!(Charge::from_str("CHARGE=2").unwrap(), Charge::Two);
@@ -41,6 +43,7 @@ impl FromStr for Charge {
     /// 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            "CHARGE=0" => Ok(Self::Zero),
             "CHARGE=1" => Ok(Self::One),
             "CHARGE=1+" => Ok(Self::OnePlus),
             "CHARGE=2" => Ok(Self::Two),
@@ -65,6 +68,7 @@ impl ToString for Charge {
     /// ```
     /// use mascot_rs::prelude::*;
     /// 
+    /// assert_eq!(Charge::Zero.to_string(), "CHARGE=0");
     /// assert_eq!(Charge::One.to_string(), "CHARGE=1");
     /// assert_eq!(Charge::OnePlus.to_string(), "CHARGE=1+");
     /// assert_eq!(Charge::Two.to_string(), "CHARGE=2");
@@ -77,6 +81,7 @@ impl ToString for Charge {
     /// 
     fn to_string(&self) -> String {
         match self {
+            Self::Zero => "CHARGE=0".to_string(),
             Self::One => "CHARGE=1".to_string(),
             Self::OnePlus => "CHARGE=1+".to_string(),
             Self::Two => "CHARGE=2".to_string(),

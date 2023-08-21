@@ -73,11 +73,6 @@ impl<
         self.metadata.charge()
     }
 
-    /// Returns the filename of the metadata.
-    pub fn filename(&self) -> Option<&str> {
-        self.metadata.filename()
-    }
-
     /// Returns a reference to the first fragmentation level, if available.
     pub fn get_first_fragmentation_level(&self) -> Result<&MascotGenericFormatData<F>, String> {
         if let Some(mgf) = self
@@ -286,7 +281,21 @@ impl<I, F> MGFVec<I, F> {
             + Add<F, Output = F>,
     {
         let file = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        Self::try_from_iter(file.lines().filter(|line| !line.is_empty()))
+        
+        // If the try from iter fails, we return the error that needs to be extended
+        // to als include the path to the file.
+        
+        match Self::try_from_iter(file.lines().filter(|line| !line.is_empty())) {
+            Ok(mascot_generic_formats) => Ok(mascot_generic_formats),
+            Err(e) => Err(format!(
+                concat!(
+                    "The file at the provided path {} could not be parsed. ",
+                    "The error message was: {}"
+                ),
+                path,
+                e
+            )),
+        }
     }
 
     pub fn try_from_iter<'a, T>(iter: T) -> Result<Self, String>

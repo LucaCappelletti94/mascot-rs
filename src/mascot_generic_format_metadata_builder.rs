@@ -11,7 +11,6 @@ pub struct MascotGenericFormatMetadataBuilder<I, F> {
     charge: Option<Charge>,
     minus_one_scans: bool,
     merge_scans_metadata_builder: Option<MergeScansMetadataBuilder<I>>,
-    filename: Option<String>,
 }
 
 impl<I, F> Default for MascotGenericFormatMetadataBuilder<I, F> {
@@ -23,7 +22,6 @@ impl<I, F> Default for MascotGenericFormatMetadataBuilder<I, F> {
             charge: None,
             minus_one_scans: false,
             merge_scans_metadata_builder: None,
-            filename: None,
         }
     }
 }
@@ -59,13 +57,12 @@ impl<
             self.merge_scans_metadata_builder
                 .map(|builder| builder.build())
                 .transpose()?,
-            self.filename,
         )
     }
 }
 
 impl<
-        I: FromStr + Eq + Copy + Add<Output = I>,
+        I: FromStr + Eq + Copy + Add<Output = I> + Debug,
         F: FromStr + PartialEq + Copy + NaN + StrictlyPositive,
     > LineParser for MascotGenericFormatMetadataBuilder<I, F>
 {
@@ -191,7 +188,8 @@ impl<
             if let Some(observed_feature_id) = self.feature_id {
                 if observed_feature_id != feature_id {
                     return Err(format!(
-                        "Could not parse FEATURE_ID line: feature_id was already encountered and it is now different: {}",
+                        "Could not parse FEATURE_ID line: feature_id was already encountered ({:?}) and it is now different: {}",
+                        observed_feature_id,
                         line
                     ));
                 }
@@ -324,18 +322,8 @@ impl<
             return Ok(());
         }
 
-        if let Some(stripped) = line.strip_prefix("FILENAME=") {
-            let filename = stripped.to_string();
-            if let Some(observed_filename) = &self.filename {
-                if observed_filename != &filename {
-                    return Err(format!(
-                        "Could not parse FILENAME line: filename was already encountered and it is now different: {}",
-                        line
-                    ));
-                }
-            } else {
-                self.filename = Some(filename);
-            }
+        // if the line starts with FILENAME we skip it.
+        if line.starts_with("FILENAME=") {
             return Ok(());
         }
 

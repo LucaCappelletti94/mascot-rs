@@ -25,6 +25,10 @@ jobs:
           override: true
       - name: Build
         run: cargo build --verbose
+      - name: Install python requirements
+        run: pip install -r requirements.txt
+      - name: Retrieve data
+        run: python tests/retrieve_data.py
       - name: Run tests
         run: cargo test --verbose
       - name: Run clippy

@@ -15,3 +15,5 @@ Cargo.lock
 .DS_Store
 
 .ipynb_checkpoints
+tests/data/*.mgf
+.vscode

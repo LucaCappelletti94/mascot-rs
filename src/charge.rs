@@ -2,9 +2,12 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Charge {
+    ZeroMinus,
     Zero,
+    OneMinus,
     One,
     OnePlus,
+    TwoMinus,
     Two,
     TwoPlus,
     Three,
@@ -27,9 +30,14 @@ impl FromStr for Charge {
     /// use mascot_rs::prelude::*;
     /// use std::str::FromStr;
     /// 
-    /// assert_eq!(Charge::from_str("CHARGE=0").unwrap(), Charge::One);
+    /// assert_eq!(Charge::from_str("CHARGE=0").unwrap(), Charge::Zero);
+    /// assert_eq!(Charge::from_str("CHARGE=-0").unwrap(), Charge::ZeroMinus);
+    /// assert_eq!(Charge::from_str("CHARGE=0-").unwrap(), Charge::ZeroMinus);
+    /// assert_eq!(Charge::from_str("CHARGE=-1").unwrap(), Charge::OneMinus);
     /// assert_eq!(Charge::from_str("CHARGE=1").unwrap(), Charge::One);
     /// assert_eq!(Charge::from_str("CHARGE=1+").unwrap(), Charge::OnePlus);
+    /// assert_eq!(Charge::from_str("CHARGE=-2").unwrap(), Charge::TwoMinus);
+    /// assert_eq!(Charge::from_str("CHARGE=2-").unwrap(), Charge::TwoMinus);
     /// assert_eq!(Charge::from_str("CHARGE=2").unwrap(), Charge::Two);
     /// assert_eq!(Charge::from_str("CHARGE=2+").unwrap(), Charge::TwoPlus);
     /// assert_eq!(Charge::from_str("CHARGE=3").unwrap(), Charge::Three);
@@ -44,15 +52,21 @@ impl FromStr for Charge {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "CHARGE=0" => Ok(Self::Zero),
+            "CHARGE=-0" => Ok(Self::ZeroMinus),
+            "CHARGE=0-" => Ok(Self::ZeroMinus),
+            "CHARGE=1-" => Ok(Self::OneMinus),
+            "CHARGE=-1" => Ok(Self::OneMinus),
             "CHARGE=1" => Ok(Self::One),
             "CHARGE=1+" => Ok(Self::OnePlus),
+            "CHARGE=-2" => Ok(Self::TwoMinus),
+            "CHARGE=2-" => Ok(Self::TwoMinus),
             "CHARGE=2" => Ok(Self::Two),
             "CHARGE=2+" => Ok(Self::TwoPlus),
             "CHARGE=3" => Ok(Self::Three),
             "CHARGE=3+" => Ok(Self::ThreePlus),
             "CHARGE=4" => Ok(Self::Four),
             "CHARGE=4+" => Ok(Self::FourPlus),
-            _ => Err(format!("Could not parse charge: {}", s)),
+            _ => Err(format!("Could not parse charge candidate: {}", s)),
         }
     }
 }
@@ -69,8 +83,11 @@ impl ToString for Charge {
     /// use mascot_rs::prelude::*;
     /// 
     /// assert_eq!(Charge::Zero.to_string(), "CHARGE=0");
+    /// assert_eq!(Charge::ZeroMinus.to_string(), "CHARGE=-0");
     /// assert_eq!(Charge::One.to_string(), "CHARGE=1");
+    /// assert_eq!(Charge::OneMinus.to_string(), "CHARGE=-1");
     /// assert_eq!(Charge::OnePlus.to_string(), "CHARGE=1+");
+    /// assert_eq!(Charge::TwoMinus.to_string(), "CHARGE=-2");
     /// assert_eq!(Charge::Two.to_string(), "CHARGE=2");
     /// assert_eq!(Charge::TwoPlus.to_string(), "CHARGE=2+");
     /// assert_eq!(Charge::Three.to_string(), "CHARGE=3");
@@ -82,8 +99,11 @@ impl ToString for Charge {
     fn to_string(&self) -> String {
         match self {
             Self::Zero => "CHARGE=0".to_string(),
+            Self::ZeroMinus => "CHARGE=-0".to_string(),
             Self::One => "CHARGE=1".to_string(),
+            Self::OneMinus => "CHARGE=-1".to_string(),
             Self::OnePlus => "CHARGE=1+".to_string(),
+            Self::TwoMinus => "CHARGE=-2".to_string(),
             Self::Two => "CHARGE=2".to_string(),
             Self::TwoPlus => "CHARGE=2+".to_string(),
             Self::Three => "CHARGE=3".to_string(),

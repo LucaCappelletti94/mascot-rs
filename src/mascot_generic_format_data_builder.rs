@@ -72,6 +72,10 @@ where
     /// let line = "TITLE=File:";
     ///
     /// assert!(!MascotGenericFormatDataBuilder::<f64>::can_parse_line(line));
+    /// 
+    /// let line = "SOURCE_INSTRUMENT=ESI-LC-ESI-QFT";
+    /// 
+    /// assert!(!MascotGenericFormatDataBuilder::<f64>::can_parse_line(line));
     ///
     /// for line in [
     ///     "60.5425 2.4E5",
@@ -152,9 +156,19 @@ where
         // We obtain the mass divided by change value:
         let mass_divided_by_charge_ratio = split
             .next()
-            .ok_or_else(|| "Could not parse mass divided by charge ratio".to_string())?
+            .ok_or_else(|| {
+                format!(
+                    "Could not parse mass divided by charge ratio from line \"{}\".",
+                    line
+                )
+            })?
             .parse::<F>()
-            .map_err(|_| "Could not parse mass divided by charge ratio".to_string())?;
+            .map_err(|_| {
+                format!(
+                    "Could not parse mass divided by charge ratio from line \"{}\".",
+                    line
+                )
+            })?;
 
         // We obtain the fragment intensity:
         let fragment_intensity = split

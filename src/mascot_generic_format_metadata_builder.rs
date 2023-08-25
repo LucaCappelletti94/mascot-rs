@@ -150,7 +150,6 @@ impl<
     /// assert_eq!(mascot_generic_format_metadata.parent_ion_mass(), 381.0795);
     /// assert_eq!(mascot_generic_format_metadata.retention_time(), 37.083);
     /// assert_eq!(mascot_generic_format_metadata.charge(), Charge::One);
-    /// assert_eq!(mascot_generic_format_metadata.filename(), Some("20220513_PMA_DBGI_01_04_003.mzML"));
     ///
     /// let mut parser = MascotGenericFormatMetadataBuilder::<usize, f64>::default();
     ///

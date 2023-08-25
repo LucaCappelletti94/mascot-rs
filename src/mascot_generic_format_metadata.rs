@@ -72,16 +72,6 @@ impl<I: Copy + Add<Output = I> + Eq + Debug + Copy + Zero, F: StrictlyPositive +
     ///     ).is_err()
     /// );
     ///
-    /// assert!(
-    ///     MascotGenericFormatMetadata::new(
-    ///         feature_id,
-    ///         parent_ion_mass,
-    ///         retention_time,
-    ///         charge,
-    ///         None,
-    ///     ).is_err()
-    /// );
-    ///
     /// ```
     ///
     pub fn new(

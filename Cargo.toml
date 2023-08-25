@@ -12,3 +12,6 @@ keywords = ["mascot", "format", "spectrography"]
 categories = [
     "science",
 ]
+
+[dev-dependencies]
+serde_json = "1.0.105"

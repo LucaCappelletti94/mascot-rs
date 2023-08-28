@@ -9,6 +9,10 @@ pub struct MascotGenericFormatMetadataBuilder<I, F> {
     parent_ion_mass: Option<F>,
     retention_time: Option<F>,
     charge: Option<Charge>,
+    organism: Option<String>,
+    sequence: Option<String>,
+    source_instrument: Option<String>,
+    ion_mode: Option<IonMode>,
     minus_one_scans: bool,
     merge_scans_metadata_builder: Option<MergeScansMetadataBuilder<I>>,
 }
@@ -20,6 +24,10 @@ impl<I, F> Default for MascotGenericFormatMetadataBuilder<I, F> {
             parent_ion_mass: None,
             retention_time: None,
             charge: None,
+            organism: None,
+            sequence: None,
+            source_instrument: None,
+            ion_mode: None,
             minus_one_scans: false,
             merge_scans_metadata_builder: None,
         }
@@ -51,9 +59,13 @@ impl<
             self.retention_time.ok_or_else(|| {
                 "Could not build MascotGenericFormatMetadata: retention_time is missing".to_string()
             })?,
+            self.source_instrument,
+            self.sequence,
+            self.organism,
             self.charge.ok_or_else(|| {
                 "Could not build MascotGenericFormatMetadata: charge is missing".to_string()
             })?,
+            self.ion_mode,
             self.merge_scans_metadata_builder
                 .map(|builder| builder.build())
                 .transpose()?,
@@ -86,7 +98,13 @@ impl<
     ///     "CHARGE=2+",
     ///     "CHARGE=3+",
     ///     "CHARGE=4+",
+    ///     "CHARGE=5+",
+    ///     "IONMODE=positive",
+    ///     "IONMODE=negative",
+    ///     "IONMODE=N/A",
+    ///     "ORGANISM=GNPS-COLLECTIONS-PESTICIDES-POSITIVE",
     ///     "RTINSECONDS=37.083",
+    ///     "SEQ=*..*",
     ///     "FILENAME=20220513_PMA_DBGI_01_04_003.mzML",
     ///     "SCANS=-1",
     /// ] {
@@ -99,6 +117,10 @@ impl<
             || line.starts_with("SCANS=")
             || line.starts_with("RTINSECONDS=")
             || line.starts_with("FILENAME=")
+            || line.starts_with("SOURCE_INSTRUMENT=")
+            || line.starts_with("IONMODE=")
+            || line.starts_with("ORGANISM=")
+            || line.starts_with("SEQ=")
             || line.starts_with("CHARGE=")
             || MergeScansMetadataBuilder::<I>::can_parse_line(line)
     }
@@ -140,6 +162,10 @@ impl<
     /// parser.digest_line("SCANS=1").unwrap();
     /// parser.digest_line("CHARGE=1").unwrap();
     /// parser.digest_line("MERGED_SCANS=1567,1540");
+    /// parser.digest_line("SOURCE_INSTRUMENT=ESI-qTof");
+    /// parser.digest_line("IONMODE=positive");
+    /// parser.digest_line("ORGANISM=GNPS-COLLECTIONS-PESTICIDES-POSITIVE");
+    /// parser.digest_line("SOURCE_INSTRUMENT=LC-ESI-Q-Exactive Plus Orbitrap Res 14k");
     /// parser.digest_line("MERGED_STATS=2 / 2 (0 removed due to low quality, 0 removed due to low cosine).");
     /// parser.digest_line("RTINSECONDS=37.083").unwrap();
     /// parser.digest_line("FILENAME=20220513_PMA_DBGI_01_04_003.mzML").unwrap();
@@ -282,6 +308,59 @@ impl<
             return Ok(());
         }
 
+        // If the line starts with IONMODE, we update the value of the ion mode.
+        // If the value of the ion mode is already set, we check that the
+        // new value is the same, and if the value we encounter is equal to "N/A"
+        // we leave the value of the ion mode unchanged.
+        if let Some(stripped) = line.strip_prefix("IONMODE=") {
+            if IonMode::is_nan_ion_mode_from_str(stripped) {
+                return Ok(());
+            }
+            let this_ion_mode = IonMode::from_str(stripped)?;
+            if let Some(ion_mode) = self.ion_mode {
+                if ion_mode != this_ion_mode {
+                    return Err(format!(
+                        "Could not parse IONMODE line: ion_mode was already encountered and it is now different: {}",
+                        line
+                    ));
+                }
+            }
+            self.ion_mode = Some(this_ion_mode);
+            return Ok(());
+        }
+
+        // If the line starts with SEQ, we update the value of the sequence.
+        // If the value of the sequence is already set, we check that the
+        // new value is the same, and if the value we encounter is equal to "*..*"
+        // we leave the value of the sequence unchanged.
+        if let Some(stripped) = line.strip_prefix("SEQ=") {
+            if let Some(sequence) = &self.sequence {
+                if sequence != stripped {
+                    return Err(format!(
+                        "Could not parse SEQ line: sequence was already encountered and it is now different: {}",
+                        line
+                    ));
+                }
+            } else if stripped != "*..*" {
+                self.sequence = Some(stripped.to_string());
+            }
+            return Ok(());
+        }
+
+        if let Some(stripped) = line.strip_prefix("SOURCE_INSTRUMENT=") {
+            if let Some(observed_source_instrument) = &self.source_instrument {
+                if observed_source_instrument != stripped {
+                    return Err(format!(
+                        "Could not parse SOURCE_INSTRUMENT line: source_instrument was already encountered and it is now different: {}",
+                        line
+                    ));
+                }
+            } else {
+                self.source_instrument = Some(stripped.to_string());
+            }
+            return Ok(());
+        }
+
         if let Some(stripped) = line.strip_prefix("RTINSECONDS=") {
             let retention_time = F::from_str(stripped).map_err(|_| {
                 format!(
@@ -317,6 +396,20 @@ impl<
                 }
             } else {
                 self.retention_time = Some(retention_time);
+            }
+            return Ok(());
+        }
+
+        if let Some(stripped) = line.strip_prefix("ORGANISM=") {
+            if let Some(observed_organism) = &self.organism {
+                if observed_organism != stripped {
+                    return Err(format!(
+                        "Could not parse ORGANISM line: organism was already encountered and it is now different: {}",
+                        line
+                    ));
+                }
+            } else {
+                self.organism = Some(stripped.to_string());
             }
             return Ok(());
         }

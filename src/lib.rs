@@ -1,5 +1,6 @@
 #![doc = include_str!("../README.md")]
 pub mod charge;
+pub mod ionmode;
 pub mod fragmentation_spectra_level;
 pub mod mascot_generic_format;
 pub mod mascot_generic_format_builder;
@@ -16,6 +17,7 @@ pub mod nan;
 
 pub mod prelude {
     pub use crate::charge::Charge;
+    pub use crate::ionmode::IonMode;
     pub use crate::fragmentation_spectra_level::FragmentationSpectraLevel;
     pub use crate::mascot_generic_format::MascotGenericFormat;
     pub use crate::mascot_generic_format::MGFVec;

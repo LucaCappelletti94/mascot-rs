@@ -8,27 +8,6 @@ pub enum IonMode {
     Negative,
 }
 
-impl IonMode {
-    /// Returns whether the string provided is a NaN ion mode.
-    /// 
-    /// # Arguments
-    /// * `ionmode` - The string to check.
-    /// 
-    /// # Examples
-    /// 
-    /// ```rust
-    /// use mascot_rs::prelude::*;
-    /// 
-    /// assert!(IonMode::is_nan_ion_mode_from_str("IONMODE=N/A"));
-    /// assert!(!IonMode::is_nan_ion_mode_from_str("IONMODE=positive"));
-    /// assert!(!IonMode::is_nan_ion_mode_from_str("IONMODE=negative"));
-    /// assert!(!IonMode::is_nan_ion_mode_from_str("kfukfuykfjkfue"));
-    /// ```
-    pub fn is_nan_ion_mode_from_str(ionmode: &str) -> bool {
-        ionmode == "IONMODE=N/A" || ionmode == "N/A"
-    }
-}
-
 impl FromStr for IonMode {
     type Err = String;
 
@@ -52,7 +31,11 @@ impl FromStr for IonMode {
     ///
     /// ```
     ///
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
+    fn from_str(mut s: &str) -> Result<Self, Self::Err> {
+        s = s.trim();
+        if s.is_empty() {
+            return Err("Ion mode cannot be empty.".to_string());
+        }
         match s {
             "IONMODE=positive" => Ok(Self::Positive),
             "positive" => Ok(Self::Positive),

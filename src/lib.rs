@@ -14,10 +14,14 @@ pub mod line_parser;
 pub mod strictly_positive;
 pub mod zero;
 pub mod nan;
+pub mod gnps_spectrum_id;
+pub mod pubmed_id;
 
 pub mod prelude {
     pub use crate::charge::Charge;
     pub use crate::ionmode::IonMode;
+    pub use crate::pubmed_id::PubMedID;
+    pub use crate::gnps_spectrum_id::GNPSSpectrumID;
     pub use crate::fragmentation_spectra_level::FragmentationSpectraLevel;
     pub use crate::mascot_generic_format::MascotGenericFormat;
     pub use crate::mascot_generic_format::MGFVec;

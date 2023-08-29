@@ -1,7 +1,7 @@
 use crate::prelude::*;
-use std::collections::HashSet;
 use std::fmt::Debug;
 use std::hash::Hash;
+use std::io::Write;
 use std::ops::{Add, Index, IndexMut, Sub};
 use std::str::FromStr;
 
@@ -64,7 +64,7 @@ impl<
     }
 
     /// Returns the retention time of the metadata.
-    pub fn retention_time(&self) -> F {
+    pub fn retention_time(&self) -> Option<F> {
         self.metadata.retention_time()
     }
 
@@ -221,7 +221,7 @@ impl<I, F> MGFVec<I, F> {
             mascot_generic_formats: Vec::new(),
         }
     }
-
+    
     /// Create a new vector of MGF objects from the file at the provided path.
     ///
     /// # Arguments
@@ -244,7 +244,7 @@ impl<I, F> MGFVec<I, F> {
     ///
     /// let path = "tests/data/20220513_PMA_DBGI_01_04_003.mgf";
     ///
-    /// let mascot_generic_formats: MGFVec<usize, f64> = MGFVec::from_path(path).unwrap();
+    /// let mascot_generic_formats: MGFVec<usize, f64> = MGFVec::try_from_path(path).unwrap();
     ///
     /// assert_eq!(mascot_generic_formats.len(), 74, concat!(
     ///     "The number of MascotGenericFormat objects in the vector should be 74, ",
@@ -260,14 +260,14 @@ impl<I, F> MGFVec<I, F> {
     ///
     /// let path = "tests/data/20220513_PMA_DBGI_01_04_001.mzML_chromatograms_deconvoluted_deisotoped_filtered_enpkg_sirius.mgf";
     ///
-    /// let mascot_generic_formats: MGFVec<usize, f64> = MGFVec::from_path(path).unwrap();
+    /// let mascot_generic_formats: MGFVec<usize, f64> = MGFVec::try_from_path(path).unwrap();
     ///
     /// assert_eq!(mascot_generic_formats.len(), 139);
     ///
     /// ```
     ///
     ///
-    pub fn from_path(path: &str) -> Result<Self, String>
+    pub fn try_from_path(path: &str) -> Result<Self, String>
     where
         I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash,
         F: Copy
@@ -298,6 +298,135 @@ impl<I, F> MGFVec<I, F> {
         }
     }
 
+    /// Create a new vector of valid MGF objects from the file at the provided path, writing
+    /// the error log to the provided path.
+    ///
+    /// # Arguments
+    /// * `path`: &str - The path to the file to read.
+    /// * `error_log_path`: Option<&str> - The path to the file to write the error log to.
+    ///
+    /// # Returns
+    /// A new vector of vaklid MGF objects.
+    ///
+    /// # Errors
+    /// * If the file at the provided path cannot be read.
+    ///
+    /// # Examples
+    ///
+    /// An example of a document that contains only the first level of
+    /// fragmentation spectra:
+    ///
+    /// ```
+    /// use mascot_rs::prelude::*;
+    ///
+    /// let path = "tests/data/20220513_PMA_DBGI_01_04_003.mgf";
+    /// let error_log_path = "tests/data/20220513_PMA_DBGI_01_04_003.mgf.error.log";
+    ///
+    /// let mascot_generic_formats: MGFVec<usize, f64> = MGFVec::valid_from_path_with_error_log(path, error_log_path).unwrap();
+    ///
+    /// assert_eq!(mascot_generic_formats.len(), 74, concat!(
+    ///     "The number of MascotGenericFormat objects in the vector should be 74, ",
+    ///     "but it is {}."
+    /// ), mascot_generic_formats.len());
+    /// ```
+    ///
+    /// An example of another type of documents that contains both the first and
+    /// second level of fragmentation spectra:
+    ///
+    /// ```
+    /// use mascot_rs::prelude::*;
+    ///
+    /// let path = "tests/data/20220513_PMA_DBGI_01_04_001.mzML_chromatograms_deconvoluted_deisotoped_filtered_enpkg_sirius.mgf";
+    /// let error_log_path = "tests/data/20220513_PMA_DBGI_01_04_001.mzML_chromatograms_deconvoluted_deisotoped_filtered_enpkg_sirius.mgf.error.log";
+    ///
+    /// let mascot_generic_formats: MGFVec<usize, f64> = MGFVec::valid_from_path_with_error_log(path, error_log_path).unwrap();
+    ///
+    /// assert_eq!(mascot_generic_formats.len(), 139);
+    ///
+    /// ```
+    ///
+    ///
+    pub fn valid_from_path_with_error_log(path: &str, error_log_path: Option<&str>) -> Result<Self, String>
+    where
+        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash,
+        F: Copy
+            + StrictlyPositive
+            + FromStr
+            + PartialEq
+            + Debug
+            + PartialOrd
+            + NaN
+            + Sub<F, Output = F>
+            + Add<F, Output = F>,
+    {
+        let file = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        
+        // If the try from iter fails, we return the error that needs to be extended
+        // to als include the path to the file.
+        
+        Ok(Self::from_iter_with_error_log(file.lines().filter(|line| !line.is_empty()), error_log_path))
+    }
+
+    /// Create a new vector of valid MGF objects from the file at the provided path.
+    ///
+    /// # Arguments
+    /// * `path` - The path to the file to read.
+    ///
+    /// # Returns
+    /// A new vector of vaklid MGF objects.
+    ///
+    /// # Errors
+    /// * If the file at the provided path cannot be read.
+    ///
+    /// # Examples
+    ///
+    /// An example of a document that contains only the first level of
+    /// fragmentation spectra:
+    ///
+    /// ```
+    /// use mascot_rs::prelude::*;
+    ///
+    /// let path = "tests/data/20220513_PMA_DBGI_01_04_003.mgf";
+    ///
+    /// let mascot_generic_formats: MGFVec<usize, f64> = MGFVec::valid_from_path(path).unwrap();
+    ///
+    /// assert_eq!(mascot_generic_formats.len(), 74, concat!(
+    ///     "The number of MascotGenericFormat objects in the vector should be 74, ",
+    ///     "but it is {}."
+    /// ), mascot_generic_formats.len());
+    /// ```
+    ///
+    /// An example of another type of documents that contains both the first and
+    /// second level of fragmentation spectra:
+    ///
+    /// ```
+    /// use mascot_rs::prelude::*;
+    ///
+    /// let path = "tests/data/20220513_PMA_DBGI_01_04_001.mzML_chromatograms_deconvoluted_deisotoped_filtered_enpkg_sirius.mgf";
+    ///
+    /// let mascot_generic_formats: MGFVec<usize, f64> = MGFVec::valid_from_path(path).unwrap();
+    ///
+    /// assert_eq!(mascot_generic_formats.len(), 139);
+    ///
+    /// ```
+    ///
+    ///
+    pub fn valid_from_path(path: &str) -> Result<Self, String>
+    where
+        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash,
+        F: Copy
+            + StrictlyPositive
+            + FromStr
+            + PartialEq
+            + Debug
+            + PartialOrd
+            + NaN
+            + Sub<F, Output = F>
+            + Add<F, Output = F>,
+    {
+        Self::valid_from_path_with_error_log(path, None)
+    }
+
     pub fn try_from_iter<'a, T>(iter: T) -> Result<Self, String>
     where
         T: IntoIterator<Item = &'a str>,
@@ -323,25 +452,64 @@ impl<I, F> MGFVec<I, F> {
             }
         }
 
-        // We check that the feature id values are unique.
-        let number_of_unique_feature_ids = mascot_generic_formats
-            .iter()
-            .map(|mgf| mgf.feature_id())
-            .collect::<HashSet<I>>()
-            .len();
-        if number_of_unique_feature_ids != mascot_generic_formats.len() {
-            return Err(format!(
-                concat!(
-                    "We have identified {} duplicated feature ids in the MGF document provided. ",
-                    "Specifically, there were {} entries, but only {} unique feature IDs."
-                ),
-                mascot_generic_formats.len() - number_of_unique_feature_ids,
-                mascot_generic_formats.len(),
-                number_of_unique_feature_ids
-            ));
+        Ok(mascot_generic_formats)
+    }
+
+    /// Create a new vector of valid MGF objects from the file at the provided path, writing
+    /// the error log to the provided path.
+    /// 
+    /// # Arguments
+    /// * `iter` - The iterator over the lines of the file to read.
+    /// * `error_log_path` - The path to the file to write the error log to.
+    /// 
+    /// # Returns
+    /// A new vector of MGF objects, filtering out invalid ones.
+    pub fn from_iter_with_error_log<'a, T>(iter: T, error_log_path: Option<&str>) -> Self
+    where
+        T: IntoIterator<Item = &'a str>,
+        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash,
+        F: Copy
+            + StrictlyPositive
+            + FromStr
+            + PartialEq
+            + Debug
+            + PartialOrd
+            + NaN
+            + Sub<F, Output = F>
+            + Add<F, Output = F>,
+    {
+        let mut mascot_generic_formats = MGFVec::new();
+        let mut mascot_generic_format_builder = MascotGenericFormatBuilder::default();
+        // We create a backup of the builder to use when we find ourselves in the situation that
+        // a corrupted MGF entry partially overlaps with a valid one. In this case, we want to
+        // keep the valid one and discard the corrupted one, so we use the backup to delete the
+        // corrupted one while keeping the valid one.
+        let mut mascot_backup: MascotGenericFormatBuilder<I, F> = MascotGenericFormatBuilder::default();
+        let mut error_log_file = error_log_path.map(|path| std::fs::File::create(path).unwrap());
+
+        for line in iter {
+            if mascot_generic_format_builder.can_build() {
+                match mascot_generic_format_builder.build() {
+                    Ok(mascot_generic_format) => {
+                        mascot_generic_formats.push(mascot_generic_format);
+                    },
+                    Err(e) => {
+                        if let Some(error_log_file) = error_log_file.as_mut() {
+                            writeln!(error_log_file, "{}", e).unwrap();
+                        }
+                    }
+                }
+                mascot_generic_format_builder = MascotGenericFormatBuilder::default();
+            }
+            if let Err(e) = mascot_generic_format_builder.digest_line(line) {
+                if let Some(error_log_file) = error_log_file.as_mut() {
+                    writeln!(error_log_file, "{}", e).unwrap();
+                }
+                continue;
+            }
         }
 
-        Ok(mascot_generic_formats)
+        mascot_generic_formats
     }
 
     pub fn push(&mut self, mascot_generic_format: MascotGenericFormat<I, F>) {

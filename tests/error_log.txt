@@ -1,0 +1,9 @@
+Could not parse FEATURE_ID line: feature_id was already encountered (740) and it is now different: FEATURE_ID=741
+Could not parse PEPMASS line: parent_ion_mass was already encountered and it is now different: PEPMASS=293.1227986810843
+Could not parse CHARGE line: charge was already encountered and it is now different: CHARGE=1
+Could not parse RTINSECONDS line: retention_time was already encountered and it is now different: RTINSECONDS=139.853
+Could not parse FEATURE_ID line: feature_id was already encountered (740) and it is now different: FEATURE_ID=741
+Could not parse PEPMASS line: parent_ion_mass was already encountered and it is now different: PEPMASS=293.1227986810843
+Could not parse CHARGE line: charge was already encountered and it is now different: CHARGE=1
+Could not parse RTINSECONDS line: retention_time was already encountered and it is now different: RTINSECONDS=139.853
+Could not parse SCANS line: scans is not -1 or equal to the feature ID: SCANS=741

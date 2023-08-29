@@ -9,10 +9,14 @@ pub struct MascotGenericFormatMetadataBuilder<I, F> {
     parent_ion_mass: Option<F>,
     retention_time: Option<F>,
     charge: Option<Charge>,
+    name: Option<String>,
     organism: Option<String>,
     sequence: Option<String>,
+    smiles: Option<String>,
     source_instrument: Option<String>,
     ion_mode: Option<IonMode>,
+    pubmed_id: Option<PubMedID>,
+    gnps_spectrum_id: Option<GNPSSpectrumID>,
     minus_one_scans: bool,
     merge_scans_metadata_builder: Option<MergeScansMetadataBuilder<I>>,
 }
@@ -24,10 +28,14 @@ impl<I, F> Default for MascotGenericFormatMetadataBuilder<I, F> {
             parent_ion_mass: None,
             retention_time: None,
             charge: None,
+            name: None,
             organism: None,
             sequence: None,
+            smiles: None,
             source_instrument: None,
             ion_mode: None,
+            pubmed_id: None,
+            gnps_spectrum_id: None,
             minus_one_scans: false,
             merge_scans_metadata_builder: None,
         }
@@ -56,16 +64,17 @@ impl<
                 "Could not build MascotGenericFormatMetadata: parent_ion_mass is missing"
                     .to_string()
             })?,
-            self.retention_time.ok_or_else(|| {
-                "Could not build MascotGenericFormatMetadata: retention_time is missing".to_string()
-            })?,
+            self.retention_time,
             self.source_instrument,
             self.sequence,
             self.organism,
+            self.name,
+            self.smiles,
             self.charge.ok_or_else(|| {
                 "Could not build MascotGenericFormatMetadata: charge is missing".to_string()
             })?,
             self.ion_mode,
+            self.pubmed_id,
             self.merge_scans_metadata_builder
                 .map(|builder| builder.build())
                 .transpose()?,
@@ -99,12 +108,19 @@ impl<
     ///     "CHARGE=3+",
     ///     "CHARGE=4+",
     ///     "CHARGE=5+",
+    ///     "NAME=Phenazine-1-carboxylic acid CollisionEnergy:102040 M-H",
     ///     "IONMODE=positive",
     ///     "IONMODE=negative",
     ///     "IONMODE=N/A",
+    ///     "PUBMED=15386517",
+    ///     "SMILES=FC(F)(F)C1=C(C(N2CCCCC2)=O)N(C=CC=C3OC)C3=N1",
+    ///     "INCHI=InChI=1S/C25H24O12/c26-15-5-1-13(9-17(15)28)3-7-21(31)36-20-12-25(24(34)35,11-19(30)23(20)33)37-22(32)8-4-14-2-6-16(27)18(29)10-14/h1-10,19-20,23,26-30,33H,11-12H2,(H,34,35)/b7-3+,8-4+/t19-,20-,23-,25+/m1/s1",
     ///     "ORGANISM=GNPS-COLLECTIONS-PESTICIDES-POSITIVE",
     ///     "RTINSECONDS=37.083",
     ///     "SEQ=*..*",
+    ///     "SPECTRUMID=CCMSLIB00000078679",
+    ///     "LIBRARYQUALITY=5",
+    ///     "SUBMITUSER=GNPS-COLLECTIONS",
     ///     "FILENAME=20220513_PMA_DBGI_01_04_003.mzML",
     ///     "SCANS=-1",
     /// ] {
@@ -118,9 +134,19 @@ impl<
             || line.starts_with("RTINSECONDS=")
             || line.starts_with("FILENAME=")
             || line.starts_with("SOURCE_INSTRUMENT=")
+            || line.starts_with("NAME=")
             || line.starts_with("IONMODE=")
+            || line.starts_with("PUBMED=")
+            || line.starts_with("PI=")
+            || line.starts_with("DATACOLLECTOR=")
+            || line.starts_with("SMILES=")
             || line.starts_with("ORGANISM=")
+            || line.starts_with("INCHI=")
+            || line.starts_with("INCHIAUX=")
             || line.starts_with("SEQ=")
+            || line.starts_with("SUBMITUSER=")
+            || line.starts_with("SPECTRUMID=")
+            || line.starts_with("LIBRARYQUALITY=")
             || line.starts_with("CHARGE=")
             || MergeScansMetadataBuilder::<I>::can_parse_line(line)
     }
@@ -129,7 +155,6 @@ impl<
     fn can_build(&self) -> bool {
         self.feature_id.is_some()
             && self.parent_ion_mass.is_some()
-            && self.retention_time.is_some()
             && self.charge.is_some()
             && !self.minus_one_scans
             && self
@@ -164,17 +189,22 @@ impl<
     /// parser.digest_line("MERGED_SCANS=1567,1540");
     /// parser.digest_line("SOURCE_INSTRUMENT=ESI-qTof");
     /// parser.digest_line("IONMODE=positive");
+    /// parser.digest_line("PUBMED=15386517");
+    /// parser.digest_line("NAME=Phenazine-1-carboxylic acid CollisionEnergy:102040 M-H");
     /// parser.digest_line("ORGANISM=GNPS-COLLECTIONS-PESTICIDES-POSITIVE");
+    /// parser.digest_line("SMILES=FC(F)(F)C1=C(C(N2CCCCC2)=O)N(C=CC=C3OC)C3=N1");
     /// parser.digest_line("SOURCE_INSTRUMENT=LC-ESI-Q-Exactive Plus Orbitrap Res 14k");
     /// parser.digest_line("MERGED_STATS=2 / 2 (0 removed due to low quality, 0 removed due to low cosine).");
     /// parser.digest_line("RTINSECONDS=37.083").unwrap();
+    /// parser.digest_line("SEQ=*..*").unwrap();
+    /// parser.digest_line("SPECTRUMID=CCMSLIB00000078679").unwrap();
     /// parser.digest_line("FILENAME=20220513_PMA_DBGI_01_04_003.mzML").unwrap();
     ///
     /// let mascot_generic_format_metadata = parser.build().unwrap();
     ///
     /// assert_eq!(mascot_generic_format_metadata.feature_id(), 1);
     /// assert_eq!(mascot_generic_format_metadata.parent_ion_mass(), 381.0795);
-    /// assert_eq!(mascot_generic_format_metadata.retention_time(), 37.083);
+    /// assert_eq!(mascot_generic_format_metadata.retention_time(), Some(37.083));
     /// assert_eq!(mascot_generic_format_metadata.charge(), Charge::One);
     ///
     /// let mut parser = MascotGenericFormatMetadataBuilder::<usize, f64>::default();
@@ -313,7 +343,7 @@ impl<
         // new value is the same, and if the value we encounter is equal to "N/A"
         // we leave the value of the ion mode unchanged.
         if let Some(stripped) = line.strip_prefix("IONMODE=") {
-            if IonMode::is_nan_ion_mode_from_str(stripped) {
+            if stripped.is_nan() {
                 return Ok(());
             }
             let this_ion_mode = IonMode::from_str(stripped)?;
@@ -343,6 +373,25 @@ impl<
                 }
             } else if stripped != "*..*" {
                 self.sequence = Some(stripped.to_string());
+            }
+            return Ok(());
+        }
+
+        // If the line starts with NAME, we update the value of the name.
+        if let Some(stripped) = line.strip_prefix("NAME=") {
+            if let Some(name) = &self.name {
+                if name != stripped {
+                    return Err(format!(
+                        concat!(
+                            "Could not parse NAME line: name was already ",
+                            "encountered as {:?} and it is now different: {}.",
+                        ),
+                        self.name.as_ref(),
+                        line
+                    ));
+                }
+            } else {
+                self.name = Some(stripped.to_string());
             }
             return Ok(());
         }
@@ -414,8 +463,81 @@ impl<
             return Ok(());
         }
 
+        if let Some(stripped) = line.strip_prefix("SMILES=") {
+            if stripped.is_nan() || stripped.is_empty() {
+                return Ok(());
+            }
+            if let Some(observed_smiles) = &self.smiles {
+                if observed_smiles != stripped {
+                    return Err(format!(
+                        "Could not parse SMILES line: smiles was already encountered and it is now different: {}",
+                        line
+                    ));
+                }
+            } else {
+                self.smiles = Some(stripped.to_string());
+            }
+            return Ok(());
+        }
+
+        if let Some(stripped) = line.strip_prefix("PUBMED=") {
+            // If the pubmed id is NaN we skip it.
+            if stripped.is_nan() {
+                return Ok(());
+            }
+
+            self.pubmed_id = Some(PubMedID::from_str(stripped)?);
+            return Ok(());
+        }
+
+        if let Some(stripped) = line.strip_prefix("SPECTRUMID=") {
+            let gnps_spectrum_id = GNPSSpectrumID::from_str(stripped)?;
+            if let Some(observed_gnps_spectrum_id) = self.gnps_spectrum_id {
+                if observed_gnps_spectrum_id != gnps_spectrum_id {
+                    return Err(format!(
+                        "Could not parse SPECTRUMID line: gnps_spectrum_id was already encountered and it is now different: {}",
+                        line
+                    ));
+                }
+            } else {
+                self.gnps_spectrum_id = Some(gnps_spectrum_id);
+            }
+            return Ok(());
+        }
+
         // if the line starts with FILENAME we skip it.
         if line.starts_with("FILENAME=") {
+            return Ok(());
+        }
+
+        // If the line starts with PI, we skip it.
+        if line.starts_with("PI=") {
+            return Ok(());
+        }
+
+        // If the line starts with DATACOLLECTOR, we skip it.
+        if line.starts_with("DATACOLLECTOR=") {
+            return Ok(());
+        }
+
+        // If the line starts with SUBMITUSER, we skip it.
+        if line.starts_with("SUBMITUSER=") {
+            return Ok(());
+        }
+
+        // If the line starts with LIBRARYQUALITY, we skip it.
+        if line.starts_with("LIBRARYQUALITY=") {
+            return Ok(());
+        }
+
+        // If the line starts with INCHI, we skip it.
+        // TODO! ACTUIALLY PARSE INCHI!
+        if line.starts_with("INCHI=") {
+            return Ok(());
+        }
+
+        // If the line starts with INCHIAUX, we skip it.
+        if line.starts_with("INCHIAUX=") {
             return Ok(());
         }
 

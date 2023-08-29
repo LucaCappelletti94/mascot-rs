@@ -24,7 +24,7 @@ impl<F: PartialOrd + Copy> MascotGenericFormatData<F> {
     ///
     /// # Examples
     ///
-    /// ```
+    /// ```rust
     /// use mascot_rs::prelude::*;
     ///
     /// let level = FragmentationSpectraLevel::Two;

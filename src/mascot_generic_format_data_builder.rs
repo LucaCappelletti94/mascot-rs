@@ -84,7 +84,14 @@ where
     ///     "79.0547 1.6E5",
     ///     "81.0606 1.1E4",
     ///     "81.0704 2.4E6",
-    ///     "83.0497 1.7E4"
+    ///     "83.0497 1.7E4",
+    ///     "60.5425\t2.4E5",
+    ///     "119.085\t3.3E5",
+    ///     "72.6217\t2.1E4",
+    ///     "79.0547\t1.6E5",
+    ///     "81.0606\t1.1E4",
+    ///     "81.0704\t2.4E6",
+    ///     "83.0497\t1.7E4"
     /// ] {
     ///     assert!(MascotGenericFormatDataBuilder::<f64>::can_parse_line(line));
     /// }
@@ -95,6 +102,7 @@ where
         line.starts_with("MSLEVEL=")
             || line.starts_with("SPECTYPE=CORRELATED MS")
             || line.contains(' ') && line.split(' ').all(|s| s.parse::<F>().is_ok())
+            || line.contains('\t') && line.split('\t').all(|s| s.parse::<F>().is_ok())
     }
 
     /// Returns whether the builder can be built.
@@ -130,12 +138,17 @@ where
     /// parser.digest_line("MSLEVEL=1");
     /// parser.digest_line("60.5425 2.4E5");
     /// parser.digest_line("119.0857 3.3E5");
+    /// parser.digest_line("72.6217 2.1E4");
+    /// parser.digest_line("79.0547 1.6E5");
+    /// parser.digest_line("81.0606\t1.1E4");
+    /// parser.digest_line("81.0704\t2.4E6");
+    /// 
     ///
     /// let mascot_generic_format_data = parser.build().unwrap();
     ///
     /// assert_eq!(mascot_generic_format_data.level(), FragmentationSpectraLevel::One);
-    /// assert_eq!(mascot_generic_format_data.mass_divided_by_charge_ratios(), &[60.5425, 119.0857]);
-    /// assert_eq!(mascot_generic_format_data.fragment_intensities(), &[2.4E5, 3.3E5]);
+    /// assert_eq!(mascot_generic_format_data.mass_divided_by_charge_ratios(), &[60.5425, 119.0857, 72.6217, 79.0547, 81.0606, 81.0704]);
+    /// assert_eq!(mascot_generic_format_data.fragment_intensities(), &[2.4E5, 3.3E5, 2.1E4, 1.6E5, 1.1E4, 2.4E6]);
     ///
     /// ```
     ///
@@ -150,8 +163,12 @@ where
         if line.starts_with("SPECTYPE=CORRELATED MS") {
             return Ok(());
         }
-
-        let mut split = line.split(' ');
+        
+        let mut split = if line.contains(' ') {
+            line.split(' ')
+        } else {
+            line.split('\t')
+        };
 
         // We obtain the mass divided by change value:
         let mass_divided_by_charge_ratio = split

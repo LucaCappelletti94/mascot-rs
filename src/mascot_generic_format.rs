@@ -1,5 +1,5 @@
 use crate::prelude::*;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
 use std::hash::Hash;
 use std::io::Write;
 use std::ops::{Add, Index, IndexMut, Sub};
@@ -18,6 +18,7 @@ impl<
             + PartialEq
             + PartialOrd
             + Debug
+            + Display
             + Add<F, Output = F>
             + Sub<F, Output = F>,
     > MascotGenericFormat<I, F>
@@ -31,21 +32,30 @@ impl<
         // of the data is equal to one, then the PEPMASS must be equal to
         // the minimum mass value reported in the data associated to the
         // first level.
-        let mgf = Self { metadata, data };
+        let mut mgf = Self { metadata, data };
+
+        // If the provided metadata does not have a parent ion mass, we
+        // can set the value to the minimum mass divided by charge ratio
+        // from the first fragmentation level, if available.
+        if mgf.parent_ion_mass().is_none() && mgf.has_first_level() {
+            mgf.metadata.set_parent_ion_mass(
+                mgf.get_first_fragmentation_level()?
+                    .min_mass_divided_by_charge_ratio(),
+            );
+        }
+
+        // If the provided metadata provides fragmentation data of the first level,
+        // we need to check that the parent ion mass is equal to one of the masses
+        // reported in the first level.
 
         if let Ok(first_mgf) = mgf.get_first_fragmentation_level() {
-            if mgf.parent_ion_mass() != first_mgf.min_mass_divided_by_charge_ratio() {
+            if !first_mgf.has_mass_divided_by_charge_ratio(mgf.parent_ion_mass().unwrap()) {
                 return Err(format!(
                     concat!(
-                        "When the MGF contains data relative to fragmentation level one, ",
-                        "it is necessary for the parent ion mass entry in the metadata (PEPMASS) ",
-                        "to be equal to the minimum mass ratio reported in the data of the associated ",
-                        "first fragmentation level. In this case, we encounted a metadata pepmass ",
-                        "of {:?}, while the minimum mass-charge ratio was {:?}. This may be a data bug ",
-                        "derived from how the file was created."
+                        "The parent ion mass {} is not equal to any of the ",
+                        "masses reported in the first level of fragmentation spectra."
                     ),
-                    mgf.parent_ion_mass(),
-                    first_mgf.min_mass_divided_by_charge_ratio()
+                    mgf.parent_ion_mass().unwrap()
                 ));
             }
         }
@@ -59,7 +69,7 @@ impl<
     }
 
     /// Returns the parent ion mass of the metadata.
-    pub fn parent_ion_mass(&self) -> F {
+    pub fn parent_ion_mass(&self) -> Option<F> {
         self.metadata.parent_ion_mass()
     }
 
@@ -153,6 +163,11 @@ impl<
         self.data.iter().map(|d| d.level()).max().unwrap()
     }
 
+    /// Returns whether the current MGF has first level fragmentation data.
+    pub fn has_first_level(&self) -> bool {
+        self.min_fragmentation_level() == FragmentationSpectraLevel::One
+    }
+
     /// Returns whether the current MGF has second level fragmentation data.
     pub fn has_second_level(&self) -> bool {
         self.max_fragmentation_level() == FragmentationSpectraLevel::Two
@@ -221,7 +236,7 @@ impl<I, F> MGFVec<I, F> {
             mascot_generic_formats: Vec::new(),
         }
     }
-    
+
     /// Create a new vector of MGF objects from the file at the provided path.
     ///
     /// # Arguments
@@ -277,14 +292,16 @@ impl<I, F> MGFVec<I, F> {
             + Debug
             + PartialOrd
             + NaN
+            + Zero
+            + Display
             + Sub<F, Output = F>
             + Add<F, Output = F>,
     {
         let file = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        
+
         // If the try from iter fails, we return the error that needs to be extended
         // to als include the path to the file.
-        
+
         match Self::try_from_iter(file.lines().filter(|line| !line.is_empty())) {
             Ok(mascot_generic_formats) => Ok(mascot_generic_formats),
             Err(e) => Err(format!(
@@ -292,8 +309,7 @@ impl<I, F> MGFVec<I, F> {
                     "The file at the provided path {} could not be parsed. ",
                     "The error message was: {}"
                 ),
-                path,
-                e
+                path, e
             )),
         }
     }
@@ -322,7 +338,7 @@ impl<I, F> MGFVec<I, F> {
     /// let path = "tests/data/20220513_PMA_DBGI_01_04_003.mgf";
     /// let error_log_path = "tests/data/20220513_PMA_DBGI_01_04_003.mgf.error.log";
     ///
-    /// let mascot_generic_formats: MGFVec<usize, f64> = MGFVec::valid_from_path_with_error_log(path, error_log_path).unwrap();
+    /// let mascot_generic_formats: MGFVec<usize, f64> = MGFVec::valid_from_path_with_error_log(path, Some(error_log_path)).unwrap();
     ///
     /// assert_eq!(mascot_generic_formats.len(), 74, concat!(
     ///     "The number of MascotGenericFormat objects in the vector should be 74, ",
@@ -339,16 +355,19 @@ impl<I, F> MGFVec<I, F> {
     /// let path = "tests/data/20220513_PMA_DBGI_01_04_001.mzML_chromatograms_deconvoluted_deisotoped_filtered_enpkg_sirius.mgf";
     /// let error_log_path = "tests/data/20220513_PMA_DBGI_01_04_001.mzML_chromatograms_deconvoluted_deisotoped_filtered_enpkg_sirius.mgf.error.log";
     ///
-    /// let mascot_generic_formats: MGFVec<usize, f64> = MGFVec::valid_from_path_with_error_log(path, error_log_path).unwrap();
+    /// let mascot_generic_formats: MGFVec<usize, f64> = MGFVec::valid_from_path_with_error_log(path, Some(error_log_path)).unwrap();
     ///
     /// assert_eq!(mascot_generic_formats.len(), 139);
     ///
     /// ```
     ///
     ///
-    pub fn valid_from_path_with_error_log(path: &str, error_log_path: Option<&str>) -> Result<Self, String>
+    pub fn valid_from_path_with_error_log(
+        path: &str,
+        error_log_path: Option<&str>,
+    ) -> Result<Self, String>
     where
-        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash,
+        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash + Display,
         F: Copy
             + StrictlyPositive
             + FromStr
@@ -356,15 +375,20 @@ impl<I, F> MGFVec<I, F> {
             + Debug
             + PartialOrd
             + NaN
+            + Zero
+            + Display
             + Sub<F, Output = F>
             + Add<F, Output = F>,
     {
         let file = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-        
+
         // If the try from iter fails, we return the error that needs to be extended
         // to als include the path to the file.
-        
-        Ok(Self::from_iter_with_error_log(file.lines().filter(|line| !line.is_empty()), error_log_path))
+
+        Ok(Self::from_iter_with_error_log(
+            file.lines().filter(|line| !line.is_empty()),
+            error_log_path,
+        ))
     }
 
     /// Create a new vector of valid MGF objects from the file at the provided path.
@@ -413,7 +437,7 @@ impl<I, F> MGFVec<I, F> {
     ///
     pub fn valid_from_path(path: &str) -> Result<Self, String>
     where
-        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash,
+        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash + Display,
         F: Copy
             + StrictlyPositive
             + FromStr
@@ -421,6 +445,8 @@ impl<I, F> MGFVec<I, F> {
             + Debug
             + PartialOrd
             + NaN
+            + Zero
+            + Display
             + Sub<F, Output = F>
             + Add<F, Output = F>,
     {
@@ -438,6 +464,8 @@ impl<I, F> MGFVec<I, F> {
             + Debug
             + PartialOrd
             + NaN
+            + Zero
+            + Display
             + Sub<F, Output = F>
             + Add<F, Output = F>,
     {
@@ -457,17 +485,17 @@ impl<I, F> MGFVec<I, F> {
 
     /// Create a new vector of valid MGF objects from the file at the provided path, writing
     /// the error log to the provided path.
-    /// 
+    ///
     /// # Arguments
     /// * `iter` - The iterator over the lines of the file to read.
     /// * `error_log_path` - The path to the file to write the error log to.
-    /// 
+    ///
     /// # Returns
     /// A new vector of MGF objects, filtering out invalid ones.
     pub fn from_iter_with_error_log<'a, T>(iter: T, error_log_path: Option<&str>) -> Self
     where
         T: IntoIterator<Item = &'a str>,
-        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash,
+        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash + Display,
         F: Copy
             + StrictlyPositive
             + FromStr
@@ -475,6 +503,8 @@ impl<I, F> MGFVec<I, F> {
             + Debug
             + PartialOrd
             + NaN
+            + Zero
+            + Display
             + Sub<F, Output = F>
             + Add<F, Output = F>,
     {
@@ -484,28 +514,98 @@ impl<I, F> MGFVec<I, F> {
         // a corrupted MGF entry partially overlaps with a valid one. In this case, we want to
         // keep the valid one and discard the corrupted one, so we use the backup to delete the
         // corrupted one while keeping the valid one.
-        let mut mascot_backup: MascotGenericFormatBuilder<I, F> = MascotGenericFormatBuilder::default();
+        let mut mascot_backup: Option<MascotGenericFormatBuilder<I, F>> = None;
         let mut error_log_file = error_log_path.map(|path| std::fs::File::create(path).unwrap());
 
         for line in iter {
+            // If the current MGF is corrupted, it means we could not recover from the corruption
+            // using the backup builder. We need to skip lines up until we find the next MGF entry.
+            if mascot_generic_format_builder.is_corrupted() {
+                if MascotGenericFormatBuilder::<I, F>::is_start_of_new_entry(line) {
+                    mascot_generic_format_builder = MascotGenericFormatBuilder::default();
+                    mascot_backup = None;
+                } else {
+                    continue;
+                }
+            }
+
+            // If the current MGF has reached the partial state, we create a new backup
+            // so that as the MGF starts to digest the next line, we can safely store it also
+            // in the backup and handle the corner cases where the MGF entry is corrupted.
+            if mascot_generic_format_builder.is_partial() {
+                mascot_backup = Some(MascotGenericFormatBuilder::default());
+            }
+
+            // We try to process the current line with the backup builder, if it exists.
+            if let Some(mascot_backup) = mascot_backup.as_mut() {
+                let _ = mascot_backup.digest_line(line);
+            };
+
+            if let Err(e) = mascot_generic_format_builder.digest_line(line) {
+                if let Some(error_log_file) = error_log_file.as_mut() {
+                    writeln!(error_log_file, "{}", e).unwrap();
+                }
+            }
+
+            // If the current MGF builder has been corrupted and there is a backup builder
+            // that is not corrupted, we replace the current builder with the backup builder.
+            if mascot_generic_format_builder.is_corrupted()
+                && mascot_backup
+                    .as_ref()
+                    .map_or(false, |backup| !backup.is_corrupted())
+            {
+                if let Some(error_log_file) = error_log_file.as_mut() {
+                    writeln!(
+                        error_log_file,
+                        concat!(
+                            "Corruption detected in the MGF entry with feature ID '{}'. ",
+                            "Attempting to recover from the corruption by using the backup builder with ",
+                            "feature ID '{}'.",
+                        ),
+                        mascot_generic_format_builder.feature_id().map_or_else(|| "Unknown".to_string(), |id: I| id.to_string()),
+                        mascot_backup.as_ref().unwrap().feature_id().map_or_else(|| "Unknown".to_string(), |id: I| id.to_string()),
+                    ).unwrap();
+                }
+                mascot_generic_format_builder = mascot_backup.take().unwrap();
+            }
+
+            // If both the current MGF builder and the backup builder are corrupted, we
+            // need to skip lines up until we find the next MGF entry. We log an entry to
+            // notify the user that we are skipping lines and that attempts to recover
+            // from the corruption have failed.
+
+            if mascot_generic_format_builder.is_corrupted()
+                && mascot_backup
+                    .as_ref()
+                    .map_or(false, |backup| backup.is_corrupted())
+            {
+                if let Some(error_log_file) = error_log_file.as_mut() {
+                    writeln!(
+                        error_log_file,
+                        concat!(
+                            "Corruption detected in the MGF entry with feature ID '{}'. ",
+                            "Attempts to recover from the corruption by using the backup builder with ",
+                            "feature ID '{}' have failed. Skipping lines until the next MGF entry is found.",
+                        ),
+                        mascot_generic_format_builder.feature_id().map_or_else(|| "Unknown".to_string(), |id: I| id.to_string()),
+                        mascot_backup.as_ref().unwrap().feature_id().map_or_else(|| "Unknown".to_string(), |id: I| id.to_string()),
+                    ).unwrap();
+                }
+            }
+
             if mascot_generic_format_builder.can_build() {
                 match mascot_generic_format_builder.build() {
                     Ok(mascot_generic_format) => {
                         mascot_generic_formats.push(mascot_generic_format);
-                    },
+                    }
                     Err(e) => {
                         if let Some(error_log_file) = error_log_file.as_mut() {
                             writeln!(error_log_file, "{}", e).unwrap();
                         }
                     }
                 }
+                mascot_backup = None;
                 mascot_generic_format_builder = MascotGenericFormatBuilder::default();
-            }
-            if let Err(e) = mascot_generic_format_builder.digest_line(line) {
-                if let Some(error_log_file) = error_log_file.as_mut() {
-                    writeln!(error_log_file, "{}", e).unwrap();
-                }
-                continue;
             }
         }
 

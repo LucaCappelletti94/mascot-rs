@@ -16,4 +16,5 @@ Cargo.lock
 
 .ipynb_checkpoints
 tests/data/*.mgf
+tests/data/*.log
 .vscode

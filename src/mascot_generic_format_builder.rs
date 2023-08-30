@@ -1,4 +1,4 @@
-use std::{fmt::Debug, ops::Add, ops::Sub, str::FromStr};
+use std::{fmt::{Debug, Display}, ops::Add, ops::Sub, str::FromStr};
 
 use crate::prelude::*;
 
@@ -8,6 +8,7 @@ pub struct MascotGenericFormatBuilder<I, F> {
     metadata_builder: MascotGenericFormatMetadataBuilder<I, F>,
     data_builders: Vec<MascotGenericFormatDataBuilder<F>>,
     section_open: bool,
+    corruption: bool,
 }
 
 impl<I, F> Default for MascotGenericFormatBuilder<I, F>
@@ -20,6 +21,7 @@ where
             metadata_builder: MascotGenericFormatMetadataBuilder::default(),
             data_builders: Vec::new(),
             section_open: false,
+            corruption: false,
         }
     }
 }
@@ -32,11 +34,23 @@ where
         + PartialEq
         + PartialOrd
         + Debug
+        + Display
         + Sub<F, Output = F>
         + Add<F, Output = F>,
 {
     /// Builds a [`MascotGenericFormat`] from the given data.
     pub fn build(self) -> Result<MascotGenericFormat<I, F>, String> {
+        if self.is_corrupted() {
+            return Err(format!(
+                concat!(
+                    "While attempting to build a MascotGenericFormat from the current builder: ",
+                    "the builder is corrupted. ",
+                    "The current object looks like this: {self:?}"
+                ),
+                self = self
+            ));
+        }
+
         MascotGenericFormat::new(
             self.metadata_builder.build()?,
             self.data_builders
@@ -46,11 +60,46 @@ where
         )
     }
 
+    /// Returns whether the builder is now half-ready to build a [`MascotGenericFormat`].
+    ///
+    /// # Implementation details
+    /// A builder is half-ready to build a [`MascotGenericFormat`] if it has reached the end of the first-level fragmentation data,
+    /// and has encountered a SCAN=-1 entry in the metadata. This means that there should be a second-level fragmentation data
+    /// to be added, but this is not necessarily always the case: sometimes, in fact, the data is corrupted and the second-level
+    /// fragmentation data is missing. In this case, the builder is still half-ready to build a [`MascotGenericFormat`], and this
+    /// information is useful to detect these corner cases and avoid corrupted entries to corrupt the following entries.
+    pub fn is_partial(&self) -> bool {
+        self.metadata_builder.is_partial() && !self.is_level_two() && !self.section_open
+    }
+
+    /// Returns whether the current MGF builder has become corrupted.
+    pub fn is_corrupted(&self) -> bool {
+        self.corruption
+    }
+
     /// Returns whether the level of any of the data builders is equal to two.
     pub fn is_level_two(&self) -> bool {
         self.data_builders
             .iter()
             .any(|builder| builder.is_level_two().unwrap_or(false))
+    }
+
+    /// Return whether any of the data builder is empty.
+    pub fn has_empty_data_builders(&self) -> bool {
+        self.data_builders.iter().any(|builder| builder.is_empty())
+    }
+
+    /// Returns the feature ID of the current MGF builder.
+    pub fn feature_id(&self) -> Option<I> {
+        self.metadata_builder.feature_id()
+    }
+
+    pub fn is_start_of_new_entry(line: &str) -> bool {
+        line == "BEGIN IONS"
+    }
+
+    pub fn is_end_of_entry(line: &str) -> bool {
+        line == "END IONS"
     }
 }
 
@@ -64,18 +113,21 @@ where
         + Debug
         + NaN
         + PartialOrd
+        + Zero
+        + Display
         + Add<F, Output = F>
         + Sub<F, Output = F>,
 {
     fn can_parse_line(line: &str) -> bool {
-        line == "BEGIN IONS"
-            || line == "END IONS"
+        Self::is_start_of_new_entry(line)
+            || Self::is_end_of_entry(line)
             || MascotGenericFormatMetadataBuilder::<I, F>::can_parse_line(line)
             || MascotGenericFormatDataBuilder::<F>::can_parse_line(line)
     }
 
     fn can_build(&self) -> bool {
         !self.section_open
+            && !self.is_corrupted()
             && self.metadata_builder.can_build()
             && !self.data_builders.is_empty()
             && self.data_builders.iter().all(|builder| builder.can_build())
@@ -127,13 +179,14 @@ where
     /// assert!(parser.digest_line("TITLE=File:").is_err());
     /// ```
     fn digest_line(&mut self, line: &str) -> Result<(), String> {
-        if line == "BEGIN IONS" {
+        if Self::is_start_of_new_entry(line) {
             self.section_open = true;
             self.data_builders
                 .push(MascotGenericFormatDataBuilder::default());
-        } else if line == "END IONS" {
+        } else if Self::is_end_of_entry(line) {
             // IF we have reached a "END IONS" line, then we must have previously reached a "BEGIN IONS" line.
             if !self.section_open {
+                self.corruption = true;
                 return Err(format!(
                     concat!(
                         "While attempting to digest line \"END IONS\": no \"BEGIN IONS\" line was found. ",
@@ -144,12 +197,23 @@ where
             }
             // If we have reached a "END IONS" line, then the data builder stack must be buildable.
             if !self.data_builders.last().unwrap().can_build() {
+                self.corruption = true;
+                if self.has_empty_data_builders() {
+                    return Err(format!(
+                        concat!(
+                            "While attempting to digest line \"END IONS\": the object is not buildable. ",
+                            "Specifically, the metadata builder status is {} and the data builder stack is empty. ",
+                        ),
+                        self.metadata_builder.can_build(),
+                    ));
+                }
                 return Err(format!(
                     concat!(
-                        "While attempting to digest line \"END IONS\": the data builder stack is not buildable. ",
-                        "The current object looks like this: {self:?}"
+                        "While attempting to digest line \"END IONS\": the object is not buildable. ",
+                        "Specifically, the metadata builder status is {} and the data builder stack status is {}. ",
                     ),
-                    self = self
+                    self.metadata_builder.can_build(),
+                    self.data_builders.iter().all(|builder| builder.can_build()),
                 ));
             }
 
@@ -158,30 +222,46 @@ where
             self.section_open = false;
 
             if self.is_level_two() && !self.can_build() {
+                self.corruption = true;
+
+                // If the data builder is empty, we provide a more specific error message.
+                if self.data_builders.is_empty() {
+                    return Err(format!(
+                        concat!(
+                            "While attempting to digest line \"END IONS\": the object is not buildable. ",
+                            "Specifically, the metadata builder status is {} and the data builder stack is empty. ",
+                        ),
+                        self.metadata_builder.can_build(),
+                    ));
+                }
+
                 return Err(format!(
                     concat!(
                         "While attempting to digest line \"END IONS\": the object is not buildable. ",
                         "Specifically, the metadata builder status is {} and the data builder stack status is {}. ",
-                        "The metadata look like this: {metadata:?}.",
                     ),
                     self.metadata_builder.can_build(),
                     self.data_builders.iter().all(|builder| builder.can_build()),
-                    metadata = self.metadata_builder
                 ));
             }
         } else if MascotGenericFormatMetadataBuilder::<I, F>::can_parse_line(line) {
-            self.metadata_builder.digest_line(line)?;
+            self.metadata_builder.digest_line(line).map_err(|e| {
+                self.corruption = true;
+                e
+            })?;
         } else if let Some(data_builder) = self.data_builders.last_mut() {
-            data_builder.digest_line(line)?;
+            data_builder.digest_line(line).map_err(|e| {
+                self.corruption = true;
+                e
+            })?;
         } else {
+            self.corruption = true;
             return Err(format!(
                 concat!(
                     "While attempting to digest line \"{line}\": no data builder was found, ",
                     "meaning that the line \"{line}\" was not preceded by \"BEGIN IONS\". ",
-                    "The current object looks like this: {self:?}"
                 ),
                 line = line,
-                self = self
             ));
         }
 

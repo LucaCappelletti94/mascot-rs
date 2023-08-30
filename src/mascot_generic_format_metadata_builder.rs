@@ -47,6 +47,14 @@ impl<
         F: StrictlyPositive + Copy,
     > MascotGenericFormatMetadataBuilder<I, F>
 {
+    pub fn is_partial(&self) -> bool {
+        self.minus_one_scans
+    }
+
+    pub fn feature_id(&self) -> Option<I> {
+        self.feature_id
+    }
+
     pub fn build(self) -> Result<MascotGenericFormatMetadata<I, F>, String> {
         if self.minus_one_scans {
             return Err(concat!(
@@ -60,10 +68,7 @@ impl<
             self.feature_id.ok_or_else(|| {
                 "Could not build MascotGenericFormatMetadata: feature_id is missing".to_string()
             })?,
-            self.parent_ion_mass.ok_or_else(|| {
-                "Could not build MascotGenericFormatMetadata: parent_ion_mass is missing"
-                    .to_string()
-            })?,
+            self.parent_ion_mass,
             self.retention_time,
             self.source_instrument,
             self.sequence,
@@ -84,7 +89,7 @@ impl<
 
 impl<
         I: FromStr + Eq + Copy + Add<Output = I> + Debug,
-        F: FromStr + PartialEq + Copy + NaN + StrictlyPositive,
+        F: FromStr + PartialEq + Copy + NaN + StrictlyPositive + Zero,
     > LineParser for MascotGenericFormatMetadataBuilder<I, F>
 {
     /// Returns whether the line can be parsed by this parser.
@@ -154,7 +159,6 @@ impl<
     /// Returns whether the parser can build a [`MascotGenericFormatMetadata`] from the lines
     fn can_build(&self) -> bool {
         self.feature_id.is_some()
-            && self.parent_ion_mass.is_some()
             && self.charge.is_some()
             && !self.minus_one_scans
             && self
@@ -203,9 +207,9 @@ impl<
     /// let mascot_generic_format_metadata = parser.build().unwrap();
     ///
     /// assert_eq!(mascot_generic_format_metadata.feature_id(), 1);
-    /// assert_eq!(mascot_generic_format_metadata.parent_ion_mass(), 381.0795);
+    /// assert_eq!(mascot_generic_format_metadata.parent_ion_mass(), Some(381.0795));
     /// assert_eq!(mascot_generic_format_metadata.retention_time(), Some(37.083));
-    /// assert_eq!(mascot_generic_format_metadata.charge(), Charge::One);
+    /// assert_eq!(mascot_generic_format_metadata.charge(), 1);
     ///
     /// let mut parser = MascotGenericFormatMetadataBuilder::<usize, f64>::default();
     ///
@@ -270,6 +274,14 @@ impl<
                     line
                 ));
             }
+            // If the obtained PEPMASS is ZERO, this is an unknown parent ion mass.
+            // Possibly, afterwards when we build the object, we may be able to recover
+            // it from the first level of fragmentation data - otherwise, it is left to
+            // None as it is effectively unknown.
+            if parent_ion_mass.is_zero() {
+                return Ok(());
+            }
+
             if !parent_ion_mass.is_strictly_positive() {
                 return Err(format!(
                     concat!(
@@ -397,6 +409,9 @@ impl<
         }
 
         if let Some(stripped) = line.strip_prefix("SOURCE_INSTRUMENT=") {
+            if stripped.is_nan() {
+                return Ok(());
+            }
             if let Some(observed_source_instrument) = &self.source_instrument {
                 if observed_source_instrument != stripped {
                     return Err(format!(
@@ -486,7 +501,9 @@ impl<
                 return Ok(());
             }
 
-            self.pubmed_id = Some(PubMedID::from_str(stripped)?);
+            if let Ok(pubmed_id) = PubMedID::from_str(stripped) {
+                self.pubmed_id = Some(pubmed_id);
+            }
             return Ok(());
         }
 

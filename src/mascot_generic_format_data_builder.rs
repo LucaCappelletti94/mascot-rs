@@ -31,6 +31,13 @@ impl<F: PartialEq + PartialOrd + Copy + Debug> MascotGenericFormatDataBuilder<F>
         )
     }
 
+    /// Returns whether the data builder is currently empty.
+    pub fn is_empty(&self) -> bool {
+        self.level.is_none()
+            || self.mass_divided_by_charge_ratios.is_empty()
+            || self.fragment_intensities.is_empty()
+    }
+
     /// Returns whether the level is equal to two.
     ///
     /// # Raises
@@ -72,9 +79,9 @@ where
     /// let line = "TITLE=File:";
     ///
     /// assert!(!MascotGenericFormatDataBuilder::<f64>::can_parse_line(line));
-    /// 
+    ///
     /// let line = "SOURCE_INSTRUMENT=ESI-LC-ESI-QFT";
-    /// 
+    ///
     /// assert!(!MascotGenericFormatDataBuilder::<f64>::can_parse_line(line));
     ///
     /// for line in [
@@ -142,7 +149,7 @@ where
     /// parser.digest_line("79.0547 1.6E5");
     /// parser.digest_line("81.0606\t1.1E4");
     /// parser.digest_line("81.0704\t2.4E6");
-    /// 
+    ///
     ///
     /// let mascot_generic_format_data = parser.build().unwrap();
     ///
@@ -163,7 +170,7 @@ where
         if line.starts_with("SPECTYPE=CORRELATED MS") {
             return Ok(());
         }
-        
+
         let mut split = if line.contains(' ') {
             line.split(' ')
         } else {
@@ -249,7 +256,8 @@ where
                         "The mass divided by charge ratio provided in the ",
                         "line \"{}\" was smaller than the previous value. ",
                         "The mass divided by charge ratio must be provided in ",
-                        "ascending order. The current value is {:?}, while the ",
+                        "ascending order when building a level two fragmentation. ",
+                        "The current value is {:?}, while the ",
                         "previous value was {:?}."
                     ),
                     line, mass_divided_by_charge_ratio, previous_mass_divided_by_charge_ratio

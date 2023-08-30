@@ -100,6 +100,16 @@ impl<F: PartialOrd + Copy> MascotGenericFormatData<F> {
         self.mass_divided_by_charge_ratios.iter()
     }
 
+    /// Returns whether the provided mass divided by charge ratio is present in the data.
+    /// 
+    /// # Arguments
+    /// * `mass_divided_by_charge_ratio` - The mass divided by charge ratio to check.
+    pub fn has_mass_divided_by_charge_ratio(&self, mass_divided_by_charge_ratio: F) -> bool {
+        self.mass_divided_by_charge_ratios
+            .iter()
+            .any(|&x| x == mass_divided_by_charge_ratio)
+    }
+
     /// Return the minimum mass divided by charge ratio.
     pub fn min_mass_divided_by_charge_ratio(&self) -> F {
         *(self

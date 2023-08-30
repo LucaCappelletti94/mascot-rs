@@ -28,6 +28,8 @@ impl FromStr for IonMode {
     /// assert_eq!(IonMode::from_str("IONMODE=negative").unwrap(), IonMode::Negative);
     /// assert_eq!(IonMode::from_str("negative").unwrap(), IonMode::Negative);
     /// assert_eq!(IonMode::from_str("Negative").unwrap(), IonMode::Negative);
+    /// assert!(IonMode::from_str("IONMODE=foo").is_err());
+    /// assert_eq!(IonMode::from_str("Positive-20eV").unwrap(), IonMode::Positive);
     ///
     /// ```
     ///
@@ -40,6 +42,10 @@ impl FromStr for IonMode {
             "IONMODE=positive" => Ok(Self::Positive),
             "positive" => Ok(Self::Positive),
             "Positive" => Ok(Self::Positive),
+            "IONMODE=positive-20eV" => Ok(Self::Positive),
+            "IONMODE=Positive-20eV" => Ok(Self::Positive),
+            "positive-20eV" => Ok(Self::Positive),
+            "Positive-20eV" => Ok(Self::Positive),
             "IONMODE=negative" => Ok(Self::Negative),
             "negative" => Ok(Self::Negative),
             "Negative" => Ok(Self::Negative),

@@ -17,9 +17,9 @@ fn test_valid_read_mgf_documents() {
 
     let mut error_hashmap_counter: HashMap<String, usize> = HashMap::new();
 
-    for mgf_file in mgf_files[..2].iter() {
+    for mgf_file in mgf_files.iter() {
         let vec: Result<MGFVec<usize, f32>, String> =
-            MGFVec::valid_from_path_with_error_log(mgf_file, Some("tests/error_log.txt"));
+            MGFVec::valid_from_path_with_error_log(mgf_file, Some(&format!("{}.log", mgf_file)));
         failures += vec.is_err() as usize;
         if vec.is_err() {
             let error = vec.err().unwrap();

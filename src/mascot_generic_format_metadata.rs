@@ -5,7 +5,7 @@ use crate::prelude::*;
 #[derive(Debug, Clone)]
 pub struct MascotGenericFormatMetadata<I, F> {
     feature_id: I,
-    parent_ion_mass: F,
+    parent_ion_mass: Option<F>,
     retention_time: Option<F>,
     charge: Charge,
     ion_mode: Option<IonMode>,
@@ -50,14 +50,14 @@ impl<I: Copy + Add<Output = I> + Eq + Debug + Copy + Zero, F: StrictlyPositive +
     /// use mascot_rs::prelude::*;
     ///
     /// let feature_id = 1;
-    /// let parent_ion_mass = 381.0795;
+    /// let parent_ion_mass = Some(381.0795);
     /// let retention_time = 37.083;
     /// let source_instrument = Some("ESI-QUAD-TOF".to_string());
     /// let name = Some("GNPS-COLLECTIONS-PESTICIDES-POSITIVE".to_string());
     /// let smiles = Some("CC(C)C[C@@H](C(=O)O)NC(=O)[C@H](CC1=CC=CC=C1)N".to_string());
     /// let organism = Some("ORGANISM=GNPS-COLLECTIONS-PESTICIDES-POSITIVE".to_string());
     /// let sequence = Some("K.LLQLELGGQSLPELQK.V".to_string());
-    /// let charge = Charge::One;
+    /// let charge = Charge::from(1);
     /// let pubmed_id = Some(PubMedID::new(15386517, None).unwrap());
     /// let ion_mode = Some(IonMode::Positive);
     ///
@@ -84,7 +84,7 @@ impl<I: Copy + Add<Output = I> + Eq + Debug + Copy + Zero, F: StrictlyPositive +
     /// assert!(
     ///     MascotGenericFormatMetadata::new(
     ///         feature_id,
-    ///         -1.0,
+    ///         Some(-1.0),
     ///         Some(retention_time),
     ///         None,
     ///         sequence.clone(),
@@ -119,7 +119,7 @@ impl<I: Copy + Add<Output = I> + Eq + Debug + Copy + Zero, F: StrictlyPositive +
     ///
     pub fn new(
         feature_id: I,
-        parent_ion_mass: F,
+        parent_ion_mass: Option<F>,
         retention_time: Option<F>,
         source_instrument: Option<String>,
         sequence: Option<String>,
@@ -131,8 +131,10 @@ impl<I: Copy + Add<Output = I> + Eq + Debug + Copy + Zero, F: StrictlyPositive +
         pubmed_id: Option<PubMedID>,
         merged_scans_metadata: Option<MergeScansMetadata<I>>,
     ) -> Result<Self, String> {
-        if !parent_ion_mass.is_strictly_positive() {
-            return Err("Could not create MascotGenericFormatMetadata: parent_ion_mass must be strictly positive".to_string());
+        if let Some(parent_ion_mass) = parent_ion_mass.as_ref() {
+            if !parent_ion_mass.is_strictly_positive() {
+                return Err("Could not create MascotGenericFormatMetadata: parent_ion_mass must be strictly positive".to_string());
+            }
         }
 
         if let Some(retention_time) = retention_time.as_ref() {
@@ -203,8 +205,16 @@ impl<I: Copy + Add<Output = I> + Eq + Debug + Copy + Zero, F: StrictlyPositive +
     }
 
     /// Returns the parent ion mass of the metadata.
-    pub fn parent_ion_mass(&self) -> F {
+    pub fn parent_ion_mass(&self) -> Option<F> {
         self.parent_ion_mass
+    }
+
+    /// Set the parent ion mass of the metadata.
+    /// 
+    /// # Arguments
+    /// * `parent_ion_mass`: F - The parent ion mass of the metadata.
+    pub fn set_parent_ion_mass(&mut self, parent_ion_mass: F) {
+        self.parent_ion_mass = Some(parent_ion_mass);
     }
 
     /// Returns the retention time of the metadata.
@@ -215,6 +225,41 @@ impl<I: Copy + Add<Output = I> + Eq + Debug + Copy + Zero, F: StrictlyPositive +
     /// Returns the charge of the metadata.
     pub fn charge(&self) -> Charge {
         self.charge
+    }
+
+    /// Returns the ion mode of the metadata.
+    pub fn ion_mode(&self) -> Option<IonMode> {
+        self.ion_mode
+    }
+
+    /// Returns the sequence of the metadata.
+    pub fn sequence(&self) -> Option<&String> {
+        self.sequence.as_ref()
+    }
+
+    /// Returns the source instrument of the metadata.
+    pub fn source_instrument(&self) -> Option<&String> {
+        self.source_instrument.as_ref()
+    }
+
+    /// Returns the organism of the metadata.
+    pub fn organism(&self) -> Option<&String> {
+        self.organism.as_ref()
+    }
+
+    /// Returns the name of the metadata.
+    pub fn name(&self) -> Option<&String> {
+        self.name.as_ref()
+    }
+
+    /// Returns the smiles of the metadata.
+    pub fn smiles(&self) -> Option<&String> {
+        self.smiles.as_ref()
+    }
+
+    /// Returns the pubmed ID of the metadata.
+    pub fn pubmed_id(&self) -> Option<&PubMedID> {
+        self.pubmed_id.as_ref()
     }
 
     /// Returns the number of scans removed due to low quality.

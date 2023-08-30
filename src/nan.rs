@@ -18,13 +18,15 @@ impl NaN for f64 {
 impl NaN for str {
     /// Returns whether the current string does not represent a number.
     fn is_nan(&self) -> bool {
-        self.trim().is_empty()
-            || self == "N/A"
-            || self == "NaN"
-            || self == "nan"
-            || self == "NAN"
-            || self == "n/a"
-            || self == "na"
-            || self == "NA"
+        let target = self.trim();
+        target.is_empty()
+            || target == "N/A"
+            || target == "NaN"
+            || target == "nan"
+            || target == "NAN"
+            || target == "n/a"
+            || target == "na"
+            || target == "NA"
+            || target == "N/A-N/A"
     }
 }

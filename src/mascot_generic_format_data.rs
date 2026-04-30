@@ -1,5 +1,6 @@
 use crate::prelude::*;
 
+/// Peak data for one fragmentation level in an MGF ion block.
 #[derive(Debug, Clone)]
 pub struct MascotGenericFormatData<F> {
     level: FragmentationSpectraLevel,
@@ -86,45 +87,62 @@ impl<F: PartialOrd + Copy> MascotGenericFormatData<F> {
     }
 
     /// Returns the [`FragmentationSpectraLevel`] of the data.
-    pub fn level(&self) -> FragmentationSpectraLevel {
+    #[must_use]
+    pub const fn level(&self) -> FragmentationSpectraLevel {
         self.level
     }
 
     /// Returns the mass divided by charge ratios of the data.
+    #[must_use]
     pub fn mass_divided_by_charge_ratios(&self) -> &[F] {
         &self.mass_divided_by_charge_ratios
     }
 
     /// Returns iterator over the mass divided by charge ratios of the data.
-    pub fn mass_divided_by_charge_ratios_iter(&self) -> std::slice::Iter<F> {
+    pub fn mass_divided_by_charge_ratios_iter(&self) -> std::slice::Iter<'_, F> {
         self.mass_divided_by_charge_ratios.iter()
     }
 
     /// Return the minimum mass divided by charge ratio.
+    #[must_use]
     pub fn min_mass_divided_by_charge_ratio(&self) -> F {
-        *(self
-            .mass_divided_by_charge_ratios
+        self.mass_divided_by_charge_ratios
             .iter()
-            .min_by(|x, y| x.partial_cmp(y).unwrap())
-            .unwrap())
+            .copied()
+            .skip(1)
+            .fold(self.mass_divided_by_charge_ratios[0], |minimum, value| {
+                if value < minimum {
+                    value
+                } else {
+                    minimum
+                }
+            })
     }
 
     /// Return the maximum mass divided by charge ratio.
+    #[must_use]
     pub fn max_mass_divided_by_charge_ratio(&self) -> F {
-        *(self
-            .mass_divided_by_charge_ratios
+        self.mass_divided_by_charge_ratios
             .iter()
-            .max_by(|x, y| x.partial_cmp(y).unwrap())
-            .unwrap())
+            .copied()
+            .skip(1)
+            .fold(self.mass_divided_by_charge_ratios[0], |maximum, value| {
+                if value > maximum {
+                    value
+                } else {
+                    maximum
+                }
+            })
     }
 
     /// Returns the fragment intensities of the data.
+    #[must_use]
     pub fn fragment_intensities(&self) -> &[F] {
         &self.fragment_intensities
     }
 
     /// Returns iterator over the fragment intensities of the data.
-    pub fn fragment_intensities_iter(&self) -> std::slice::Iter<F> {
+    pub fn fragment_intensities_iter(&self) -> std::slice::Iter<'_, F> {
         self.fragment_intensities.iter()
     }
 }

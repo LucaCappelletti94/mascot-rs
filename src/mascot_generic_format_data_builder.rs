@@ -21,6 +21,11 @@ impl<F> Default for MascotGenericFormatDataBuilder<F> {
 }
 
 impl<F: PartialEq + PartialOrd + Copy + Debug> MascotGenericFormatDataBuilder<F> {
+    /// Builds the parsed fragmentation data.
+    ///
+    /// # Errors
+    /// Returns an error if the fragmentation level is missing or if the parsed
+    /// mass and intensity vectors are invalid.
     pub fn build(self) -> Result<MascotGenericFormatData<F>, String> {
         MascotGenericFormatData::new(
             self.level.ok_or_else(|| {
@@ -33,8 +38,8 @@ impl<F: PartialEq + PartialOrd + Copy + Debug> MascotGenericFormatDataBuilder<F>
 
     /// Returns whether the level is equal to two.
     ///
-    /// # Raises
-    /// Raises an error if the level has not been set.
+    /// # Errors
+    /// Returns an error if the level has not been set.
     pub fn is_level_two(&self) -> Result<bool, String> {
         match self.level {
             Some(FragmentationSpectraLevel::Two) => Ok(true),

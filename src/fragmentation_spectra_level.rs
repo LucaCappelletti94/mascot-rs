@@ -1,28 +1,12 @@
 use std::str::FromStr;
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+/// Supported MS fragmentation levels in an MGF `MSLEVEL=` line.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
 pub enum FragmentationSpectraLevel {
+    /// First-level fragmentation spectra.
     One,
+    /// Second-level fragmentation spectra.
     Two,
-}
-
-impl PartialOrd for FragmentationSpectraLevel {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Eq for FragmentationSpectraLevel {}
-
-impl Ord for FragmentationSpectraLevel {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match (self, other) {
-            (Self::One, Self::One) => std::cmp::Ordering::Equal,
-            (Self::One, Self::Two) => std::cmp::Ordering::Less,
-            (Self::Two, Self::One) => std::cmp::Ordering::Greater,
-            (Self::Two, Self::Two) => std::cmp::Ordering::Equal,
-        }
-    }
 }
 
 impl FromStr for FragmentationSpectraLevel {
@@ -50,10 +34,7 @@ impl FromStr for FragmentationSpectraLevel {
         match s {
             "MSLEVEL=1" => Ok(Self::One),
             "MSLEVEL=2" => Ok(Self::Two),
-            _ => Err(format!(
-                "Could not parse fragmentation spectra level: {}",
-                s
-            )),
+            _ => Err(format!("Could not parse fragmentation spectra level: {s}")),
         }
     }
 }

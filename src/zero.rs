@@ -1,4 +1,6 @@
+/// Provides a zero value for integer-like types.
 pub trait Zero {
+    /// The additive identity.
     const ZERO: Self;
 }
 

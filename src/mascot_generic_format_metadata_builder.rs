@@ -3,6 +3,7 @@ use std::{fmt::Debug, str::FromStr};
 
 use crate::prelude::*;
 
+/// Builder for metadata parsed from MGF header lines.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MascotGenericFormatMetadataBuilder<I, F> {
     feature_id: Option<I>,
@@ -33,6 +34,11 @@ impl<
         F: StrictlyPositive + Copy,
     > MascotGenericFormatMetadataBuilder<I, F>
 {
+    /// Builds parsed MGF metadata.
+    ///
+    /// # Errors
+    /// Returns an error if required metadata fields are missing, the scan status
+    /// represents a partial read, or merged-scan metadata is invalid.
     pub fn build(self) -> Result<MascotGenericFormatMetadata<I, F>, String> {
         if self.minus_one_scans {
             return Err(concat!(
@@ -57,10 +63,145 @@ impl<
                 "Could not build MascotGenericFormatMetadata: charge is missing".to_string()
             })?,
             self.merge_scans_metadata_builder
-                .map(|builder| builder.build())
+                .map(super::merge_scans_metadata_builder::MergeScansMetadataBuilder::build)
                 .transpose()?,
             self.filename,
         )
+    }
+}
+
+impl<
+        I: FromStr + Eq + Copy + Add<Output = I>,
+        F: FromStr + PartialEq + Copy + NaN + StrictlyPositive,
+    > MascotGenericFormatMetadataBuilder<I, F>
+{
+    fn digest_feature_id_line(&mut self, stripped: &str, line: &str) -> Result<(), String> {
+        let feature_id = stripped.parse::<I>().map_err(|_| {
+            format!("Could not parse FEATURE_ID line: could not parse feature ID: {line}")
+        })?;
+        match self.feature_id {
+            Some(observed_feature_id) if observed_feature_id != feature_id => Err(format!(
+                "Could not parse FEATURE_ID line: feature_id was already encountered and it is now different: {line}"
+            )),
+            Some(_) => Ok(()),
+            None => {
+                self.feature_id = Some(feature_id);
+                Ok(())
+            }
+        }
+    }
+
+    fn digest_parent_ion_mass_line(&mut self, stripped: &str, line: &str) -> Result<(), String> {
+        let parent_ion_mass = stripped.parse::<F>().map_err(|_| {
+            format!("Could not parse PEPMASS line: could not parse parent ion mass: {line}")
+        })?;
+        if parent_ion_mass.is_nan() {
+            return Err(format!(
+                "The provided line \"{line}\" contains a parent ion mass that has been interpreted as a NaN."
+            ));
+        }
+        if !parent_ion_mass.is_strictly_positive() {
+            return Err(format!(
+                "The provided line \"{line}\" contains a parent ion mass that has been interpreted as a zero or negative value. The parent ion mass must be a strictly positive value."
+            ));
+        }
+        match self.parent_ion_mass {
+            Some(observed_parent_ion_mass) if parent_ion_mass != observed_parent_ion_mass => {
+                Err(format!(
+                    "Could not parse PEPMASS line: parent_ion_mass was already encountered and it is now different: {line}"
+                ))
+            }
+            Some(_) => Ok(()),
+            None => {
+                self.parent_ion_mass = Some(parent_ion_mass);
+                Ok(())
+            }
+        }
+    }
+
+    fn digest_scans_line(&mut self, stripped: &str, line: &str) -> Result<(), String> {
+        if stripped == "-1" {
+            self.minus_one_scans = true;
+            return Ok(());
+        }
+
+        self.minus_one_scans = false;
+        let scans = stripped
+            .parse::<I>()
+            .map_err(|_| format!("Could not parse SCANS line: could not parse scans: {line}"))?;
+        match self.feature_id {
+            Some(feature_id) if scans != feature_id => Err(format!(
+                "Could not parse SCANS line: scans is not -1 or equal to the feature ID: {line}"
+            )),
+            Some(_) => Ok(()),
+            None => {
+                self.feature_id = Some(scans);
+                Ok(())
+            }
+        }
+    }
+
+    fn digest_charge_line(&mut self, line: &str) -> Result<(), String> {
+        let charge = Charge::from_str(line)
+            .map_err(|_| format!("Could not parse CHARGE line: could not parse charge: {line}"))?;
+        match self.charge {
+            Some(observed_charge) if observed_charge != charge => Err(format!(
+                "Could not parse CHARGE line: charge was already encountered and it is now different: {line}"
+            )),
+            Some(_) => Ok(()),
+            None => {
+                self.charge = Some(charge);
+                Ok(())
+            }
+        }
+    }
+
+    fn digest_retention_time_line(&mut self, stripped: &str, line: &str) -> Result<(), String> {
+        let retention_time = stripped.parse::<F>().map_err(|_| {
+            format!("Could not parse RTINSECONDS line: could not parse retention time: {line}")
+        })?;
+        if retention_time.is_nan() {
+            return Err(format!(
+                "The provided line \"{line}\" contains a retention time that has been interpreted as a NaN."
+            ));
+        }
+        if !retention_time.is_strictly_positive() {
+            return Err(format!(
+                "The provided line \"{line}\" contains a retention time that has been interpreted as a zero or negative value. The retention time must be a strictly positive value."
+            ));
+        }
+        match self.retention_time {
+            Some(observed_retention_time) if observed_retention_time != retention_time => {
+                Err(format!(
+                    "Could not parse RTINSECONDS line: retention_time was already encountered and it is now different: {line}"
+                ))
+            }
+            Some(_) => Ok(()),
+            None => {
+                self.retention_time = Some(retention_time);
+                Ok(())
+            }
+        }
+    }
+
+    fn digest_filename_line(&mut self, stripped: &str, line: &str) -> Result<(), String> {
+        let filename = stripped.to_string();
+        match self.filename.as_ref() {
+            Some(observed_filename) if observed_filename != &filename => Err(format!(
+                "Could not parse FILENAME line: filename was already encountered and it is now different: {line}"
+            )),
+            Some(_) => Ok(()),
+            None => {
+                self.filename = Some(filename);
+                Ok(())
+            }
+        }
+    }
+
+    fn digest_merge_scans_line(&mut self, line: &str) -> Result<(), String> {
+        self.merge_scans_metadata_builder
+            .get_or_insert_with(MergeScansMetadataBuilder::default)
+            .digest_line(line)
     }
 }
 
@@ -116,7 +257,7 @@ impl<
             && self
                 .merge_scans_metadata_builder
                 .as_ref()
-                .map_or(true, |builder| builder.can_build())
+                .is_none_or(super::line_parser::LineParser::can_build)
     }
 
     /// Parses a line to a [`MascotGenericFormatMetadataBuilder`].
@@ -182,177 +323,35 @@ impl<
     ///
     fn digest_line(&mut self, line: &str) -> Result<(), String> {
         if let Some(stripped) = line.strip_prefix("FEATURE_ID=") {
-            let feature_id = I::from_str(stripped).map_err(|_| {
-                format!(
-                    "Could not parse FEATURE_ID line: could not parse feature ID: {}",
-                    line
-                )
-            })?;
-            if let Some(observed_feature_id) = self.feature_id {
-                if observed_feature_id != feature_id {
-                    return Err(format!(
-                        "Could not parse FEATURE_ID line: feature_id was already encountered and it is now different: {}",
-                        line
-                    ));
-                }
-            } else {
-                self.feature_id = Some(feature_id);
-            }
-            return Ok(());
+            return self.digest_feature_id_line(stripped, line);
         }
 
         if let Some(stripped) = line.strip_prefix("PEPMASS=") {
-            let parent_ion_mass = F::from_str(stripped).map_err(|_| {
-                format!(
-                    "Could not parse PEPMASS line: could not parse parent ion mass: {}",
-                    line
-                )
-            })?;
-            if parent_ion_mass.is_nan() {
-                return Err(format!(
-                    concat!(
-                        "The provided line \"{}\" contains a parent ion mass ",
-                        "that has been interpreted as a NaN."
-                    ),
-                    line
-                ));
-            }
-            if !parent_ion_mass.is_strictly_positive() {
-                return Err(format!(
-                    concat!(
-                        "The provided line \"{}\" contains a parent ion mass ",
-                        "that has been interpreted as a zero or negative value. ",
-                        "The parent ion mass must be a strictly positive value."
-                    ),
-                    line
-                ));
-            }
-            if let Some(observerd_parent_ion_mass) = self.parent_ion_mass {
-                if parent_ion_mass != observerd_parent_ion_mass {
-                    return Err(format!(
-                        "Could not parse PEPMASS line: parent_ion_mass was already encountered and it is now different: {}",
-                        line
-                    ));
-                }
-            } else {
-                self.parent_ion_mass = Some(parent_ion_mass);
-            }
-            return Ok(());
+            return self.digest_parent_ion_mass_line(stripped, line);
         }
 
         if let Some(stripped) = line.strip_prefix("SCANS=") {
-            if stripped == "-1" {
-                self.minus_one_scans = true;
-                return Ok(());
-            }
-            self.minus_one_scans = false;
-            let scans = I::from_str(stripped).map_err(|_| {
-                format!(
-                    "Could not parse SCANS line: could not parse scans: {}",
-                    line
-                )
-            })?;
-            if let Some(feature_id) = self.feature_id {
-                if scans != feature_id {
-                    return Err(format!(
-                        "Could not parse SCANS line: scans is not -1 or equal to the feature ID: {}",
-                        line
-                    ));
-                }
-            } else {
-                self.feature_id = Some(scans);
-            }
-            return Ok(());
+            return self.digest_scans_line(stripped, line);
         }
 
         if line.starts_with("CHARGE=") {
-            let charge = Charge::from_str(line).map_err(|_| {
-                format!(
-                    "Could not parse CHARGE line: could not parse charge: {}",
-                    line
-                )
-            })?;
-            if let Some(observed_charge) = self.charge {
-                if observed_charge != charge {
-                    return Err(format!(
-                        "Could not parse CHARGE line: charge was already encountered and it is now different: {}",
-                        line
-                    ));
-                }
-            } else {
-                self.charge = Some(charge);
-            }
-            return Ok(());
+            return self.digest_charge_line(line);
         }
 
         if let Some(stripped) = line.strip_prefix("RTINSECONDS=") {
-            let retention_time = F::from_str(stripped).map_err(|_| {
-                format!(
-                    "Could not parse RTINSECONDS line: could not parse retention time: {}",
-                    line
-                )
-            })?;
-            if retention_time.is_nan() {
-                return Err(format!(
-                    concat!(
-                        "The provided line \"{}\" contains a retention time ",
-                        "that has been interpreted as a NaN."
-                    ),
-                    line
-                ));
-            }
-            if !retention_time.is_strictly_positive() {
-                return Err(format!(
-                    concat!(
-                        "The provided line \"{}\" contains a retention time ",
-                        "that has been interpreted as a zero or negative value. ",
-                        "The retention time must be a strictly positive value."
-                    ),
-                    line
-                ));
-            }
-            if let Some(observed_retention_time) = self.retention_time {
-                if observed_retention_time != retention_time {
-                    return Err(format!(
-                        "Could not parse RTINSECONDS line: retention_time was already encountered and it is now different: {}",
-                        line
-                    ));
-                }
-            } else {
-                self.retention_time = Some(retention_time);
-            }
-            return Ok(());
+            return self.digest_retention_time_line(stripped, line);
         }
 
         if let Some(stripped) = line.strip_prefix("FILENAME=") {
-            let filename = stripped.to_string();
-            if let Some(observed_filename) = &self.filename {
-                if observed_filename != &filename {
-                    return Err(format!(
-                        "Could not parse FILENAME line: filename was already encountered and it is now different: {}",
-                        line
-                    ));
-                }
-            } else {
-                self.filename = Some(filename);
-            }
-            return Ok(());
+            return self.digest_filename_line(stripped, line);
         }
 
         if MergeScansMetadataBuilder::<I>::can_parse_line(line) {
-            if self.merge_scans_metadata_builder.is_none() {
-                self.merge_scans_metadata_builder = Some(MergeScansMetadataBuilder::default());
-            }
-            self.merge_scans_metadata_builder
-                .as_mut()
-                .unwrap()
-                .digest_line(line)?;
-            return Ok(());
+            return self.digest_merge_scans_line(line);
         }
 
         Err(format!(
-            "Encountered unexpected line while parsing MascotGenericFormatMetadata: {}",
-            line
+            "Encountered unexpected line while parsing MascotGenericFormatMetadata: {line}"
         ))
     }
 }

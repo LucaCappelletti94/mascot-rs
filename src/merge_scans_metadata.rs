@@ -1,5 +1,6 @@
 use std::{fmt::Debug, ops::Add};
 
+/// Metadata describing scans merged into one MGF feature.
 #[derive(Debug, Clone)]
 pub struct MergeScansMetadata<I> {
     scans: Vec<I>,
@@ -53,7 +54,7 @@ impl<I: Add + Eq + Debug + Copy> MergeScansMetadata<I> {
     ///
     /// assert_eq!(mascot.removed_due_to_low_quality(), 4);
     /// ```
-    pub fn removed_due_to_low_quality(&self) -> I {
+    pub const fn removed_due_to_low_quality(&self) -> I {
         self.removed_due_to_low_quality
     }
 
@@ -72,7 +73,7 @@ impl<I: Add + Eq + Debug + Copy> MergeScansMetadata<I> {
     ///
     /// assert_eq!(mascot.removed_due_to_low_cosine(), 5);
     /// ```
-    pub fn removed_due_to_low_cosine(&self) -> I {
+    pub const fn removed_due_to_low_cosine(&self) -> I {
         self.removed_due_to_low_cosine
     }
 
@@ -100,13 +101,16 @@ impl<I: Add + Eq + Debug + Copy> MergeScansMetadata<I> {
     /// assert!(mascot.is_ok());
     ///
     /// ```
+    ///
+    /// # Errors
+    /// Returns an error if `scans` is empty.
     pub fn new(
         scans: Vec<I>,
         removed_due_to_low_quality: I,
         removed_due_to_low_cosine: I,
     ) -> Result<Self, String> {
         if scans.is_empty() {
-            return Err(concat!("No scans were provided.",).to_string());
+            return Err("No scans were provided.".to_string());
         }
 
         Ok(Self {

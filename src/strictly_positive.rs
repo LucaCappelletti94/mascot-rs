@@ -1,4 +1,6 @@
+/// Tests whether a numeric value is strictly greater than zero.
 pub trait StrictlyPositive {
+    /// Returns `true` when the value is strictly positive.
     fn is_strictly_positive(&self) -> bool;
 }
 

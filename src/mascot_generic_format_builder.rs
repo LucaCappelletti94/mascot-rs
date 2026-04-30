@@ -36,12 +36,16 @@ where
         + Add<F, Output = F>,
 {
     /// Builds a [`MascotGenericFormat`] from the given data.
+    ///
+    /// # Errors
+    /// Returns an error if the parsed metadata or data blocks are incomplete or
+    /// invalid.
     pub fn build(self) -> Result<MascotGenericFormat<I, F>, String> {
         MascotGenericFormat::new(
             self.metadata_builder.build()?,
             self.data_builders
                 .into_iter()
-                .map(|builder| builder.build())
+                .map(super::mascot_generic_format_data_builder::MascotGenericFormatDataBuilder::build)
                 .collect::<Result<Vec<_>, String>>()?,
         )
     }
@@ -63,7 +67,10 @@ where
         !self.section_open
             && self.metadata_builder.can_build()
             && !self.data_builders.is_empty()
-            && self.data_builders.iter().all(|builder| builder.can_build())
+            && self
+                .data_builders
+                .iter()
+                .all(super::line_parser::LineParser::can_build)
     }
 
     /// Digests the given line.

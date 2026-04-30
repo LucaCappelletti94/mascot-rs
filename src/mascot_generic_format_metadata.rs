@@ -2,6 +2,7 @@ use std::{fmt::Debug, ops::Add};
 
 use crate::prelude::*;
 
+/// Metadata for one Mascot Generic Format ion block.
 #[derive(Debug, Clone)]
 pub struct MascotGenericFormatMetadata<I, F> {
     feature_id: I,
@@ -12,7 +13,7 @@ pub struct MascotGenericFormatMetadata<I, F> {
     filename: Option<String>,
 }
 
-impl<I: Copy + Add<Output = I> + Eq + Debug + Copy + Zero, F: StrictlyPositive + Copy>
+impl<I: Copy + Add<Output = I> + Eq + Debug + Zero, F: StrictlyPositive + Copy>
     MascotGenericFormatMetadata<I, F>
 {
     /// Creates a new [`MascotGenericFormatMetadata`].
@@ -129,22 +130,22 @@ impl<I: Copy + Add<Output = I> + Eq + Debug + Copy + Zero, F: StrictlyPositive +
     }
 
     /// Returns the feature ID of the metadata.
-    pub fn feature_id(&self) -> I {
+    pub const fn feature_id(&self) -> I {
         self.feature_id
     }
 
     /// Returns the parent ion mass of the metadata.
-    pub fn parent_ion_mass(&self) -> F {
+    pub const fn parent_ion_mass(&self) -> F {
         self.parent_ion_mass
     }
 
     /// Returns the retention time of the metadata.
-    pub fn retention_time(&self) -> F {
+    pub const fn retention_time(&self) -> F {
         self.retention_time
     }
 
     /// Returns the charge of the metadata.
-    pub fn charge(&self) -> Charge {
+    pub const fn charge(&self) -> Charge {
         self.charge
     }
 
@@ -155,9 +156,9 @@ impl<I: Copy + Add<Output = I> + Eq + Debug + Copy + Zero, F: StrictlyPositive +
 
     /// Returns the number of scans removed due to low quality.
     pub fn number_of_scans_removed_due_to_low_quality(&self) -> I {
-        self.merged_scans_metadata
-            .as_ref()
-            .map(|m| m.removed_due_to_low_quality())
-            .unwrap_or(I::ZERO)
+        self.merged_scans_metadata.as_ref().map_or(
+            I::ZERO,
+            super::merge_scans_metadata::MergeScansMetadata::removed_due_to_low_quality,
+        )
     }
 }

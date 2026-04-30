@@ -1,36 +1,35 @@
-use std::{fmt::Debug, ops::Add};
-
 use crate::prelude::*;
 
 /// Metadata for one Mascot Generic Format ion block.
 #[derive(Debug, Clone)]
-pub struct MascotGenericFormatMetadata<I, F> {
+pub struct MascotGenericFormatMetadata<I> {
     feature_id: I,
-    parent_ion_mass: F,
-    retention_time: F,
-    charge: Charge,
-    merged_scans_metadata: Option<MergeScansMetadata<I>>,
+    level: u8,
+    parent_ion_mass: f64,
+    retention_time: f64,
+    charge: i8,
     filename: Option<String>,
 }
 
-impl<I: Copy + Add<Output = I> + Eq + Debug + Zero, F: StrictlyPositive + Copy>
-    MascotGenericFormatMetadata<I, F>
-{
+impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// Creates a new [`MascotGenericFormatMetadata`].
     ///
     /// # Arguments
     /// * `feature_id` - The feature ID of the metadata.
+    /// * `level` - The MS fragmentation level.
     /// * `parent_ion_mass` - The parent ion mass of the metadata.
     /// * `retention_time` - The retention time of the metadata.
-    /// * `charge` - The charge of the metadata.
+    /// * `charge` - The precursor charge of the metadata.
     /// * `filename` - The filename of the metadata.
     ///
     /// # Returns
     /// A new [`MascotGenericFormatMetadata`].
     ///
     /// # Errors
-    /// * If `parent_ion_mass` is not strictly positive.
-    /// * If `retention_time` is not strictly positive.
+    /// * If `level` is zero.
+    /// * If `parent_ion_mass` is not finite and strictly positive.
+    /// * If `retention_time` is not finite and strictly positive.
+    /// * If `charge` is zero.
     /// * If `filename` is empty.
     ///
     /// # Examples
@@ -39,21 +38,23 @@ impl<I: Copy + Add<Output = I> + Eq + Debug + Zero, F: StrictlyPositive + Copy>
     /// use mascot_rs::prelude::*;
     ///
     /// let feature_id = 1;
+    /// let level = 2;
     /// let parent_ion_mass = 381.0795;
     /// let retention_time = 37.083;
-    /// let charge = Charge::One;
+    /// let charge = 1;
     /// let filename = Some("20220513_PMA_DBGI_01_04_003.mzML".to_string());
     ///
-    /// let mascot_generic_format_metadata: MascotGenericFormatMetadata<usize, f64> = MascotGenericFormatMetadata::new(
+    /// let mascot_generic_format_metadata: MascotGenericFormatMetadata<usize> = MascotGenericFormatMetadata::new(
     ///     feature_id,
+    ///     level,
     ///     parent_ion_mass,
     ///     retention_time,
     ///     charge,
-    ///     None,
     ///     filename.clone(),
     /// ).unwrap();
     ///
     /// assert_eq!(mascot_generic_format_metadata.feature_id(), feature_id);
+    /// assert_eq!(mascot_generic_format_metadata.level(), level);
     /// assert_eq!(mascot_generic_format_metadata.parent_ion_mass(), parent_ion_mass);
     /// assert_eq!(mascot_generic_format_metadata.retention_time(), retention_time);
     /// assert_eq!(mascot_generic_format_metadata.charge(), charge);
@@ -62,10 +63,10 @@ impl<I: Copy + Add<Output = I> + Eq + Debug + Zero, F: StrictlyPositive + Copy>
     /// assert!(
     ///     MascotGenericFormatMetadata::new(
     ///         feature_id,
-    ///         -1.0,
+    ///         0,
+    ///         parent_ion_mass,
     ///         retention_time,
     ///         charge,
-    ///         None,
     ///         filename.clone(),
     ///     ).is_err()
     /// );
@@ -73,10 +74,10 @@ impl<I: Copy + Add<Output = I> + Eq + Debug + Zero, F: StrictlyPositive + Copy>
     /// assert!(
     ///     MascotGenericFormatMetadata::new(
     ///         feature_id,
-    ///         parent_ion_mass,
+    ///         level,
     ///         -1.0,
+    ///         retention_time,
     ///         charge,
-    ///         None,
     ///         filename.clone(),
     ///     ).is_err()
     /// );
@@ -84,10 +85,32 @@ impl<I: Copy + Add<Output = I> + Eq + Debug + Zero, F: StrictlyPositive + Copy>
     /// assert!(
     ///     MascotGenericFormatMetadata::new(
     ///         feature_id,
+    ///         level,
+    ///         parent_ion_mass,
+    ///         -1.0,
+    ///         charge,
+    ///         filename.clone(),
+    ///     ).is_err()
+    /// );
+    ///
+    /// assert!(
+    ///     MascotGenericFormatMetadata::new(
+    ///         feature_id,
+    ///         level,
+    ///         parent_ion_mass,
+    ///         retention_time,
+    ///         0,
+    ///         filename.clone(),
+    ///     ).is_err()
+    /// );
+    ///
+    /// assert!(
+    ///     MascotGenericFormatMetadata::new(
+    ///         feature_id,
+    ///         level,
     ///         parent_ion_mass,
     ///         retention_time,
     ///         charge,
-    ///         None,
     ///         Some("".to_string()),
     ///     ).is_err()
     /// );
@@ -96,35 +119,63 @@ impl<I: Copy + Add<Output = I> + Eq + Debug + Zero, F: StrictlyPositive + Copy>
     ///
     pub fn new(
         feature_id: I,
-        parent_ion_mass: F,
-        retention_time: F,
-        charge: Charge,
-        merged_scans_metadata: Option<MergeScansMetadata<I>>,
+        level: u8,
+        parent_ion_mass: f64,
+        retention_time: f64,
+        charge: i8,
         filename: Option<String>,
-    ) -> Result<Self, String> {
-        if !parent_ion_mass.is_strictly_positive() {
-            return Err("Could not create MascotGenericFormatMetadata: parent_ion_mass must be strictly positive".to_string());
+    ) -> Result<Self> {
+        if level == 0 {
+            return Err(MascotError::NonPositiveField {
+                field: "fragmentation level",
+                line: level.to_string(),
+            });
         }
 
-        if !retention_time.is_strictly_positive() {
-            return Err("Could not create MascotGenericFormatMetadata: retention_time must be strictly positive".to_string());
+        if charge == 0 {
+            return Err(MascotError::ZeroCharge);
+        }
+
+        if !parent_ion_mass.is_finite() || parent_ion_mass <= 0.0 {
+            return if parent_ion_mass.is_finite() {
+                Err(MascotError::NonPositiveField {
+                    field: "parent ion mass",
+                    line: parent_ion_mass.to_string(),
+                })
+            } else {
+                Err(MascotError::NonFiniteField {
+                    field: "parent ion mass",
+                    line: parent_ion_mass.to_string(),
+                })
+            };
+        }
+
+        if !retention_time.is_finite() || retention_time <= 0.0 {
+            return if retention_time.is_finite() {
+                Err(MascotError::NonPositiveField {
+                    field: "retention time",
+                    line: retention_time.to_string(),
+                })
+            } else {
+                Err(MascotError::NonFiniteField {
+                    field: "retention time",
+                    line: retention_time.to_string(),
+                })
+            };
         }
 
         if let Some(filename) = &filename {
             if filename.is_empty() {
-                return Err(
-                    "Could not create MascotGenericFormatMetadata: filename must not be empty"
-                        .to_string(),
-                );
+                return Err(MascotError::EmptyFilename);
             }
         }
 
         Ok(Self {
             feature_id,
+            level,
             parent_ion_mass,
             retention_time,
             charge,
-            merged_scans_metadata,
             filename,
         })
     }
@@ -134,31 +185,28 @@ impl<I: Copy + Add<Output = I> + Eq + Debug + Zero, F: StrictlyPositive + Copy>
         self.feature_id
     }
 
+    /// Returns the MS fragmentation level.
+    pub const fn level(&self) -> u8 {
+        self.level
+    }
+
     /// Returns the parent ion mass of the metadata.
-    pub const fn parent_ion_mass(&self) -> F {
+    pub const fn parent_ion_mass(&self) -> f64 {
         self.parent_ion_mass
     }
 
     /// Returns the retention time of the metadata.
-    pub const fn retention_time(&self) -> F {
+    pub const fn retention_time(&self) -> f64 {
         self.retention_time
     }
 
     /// Returns the charge of the metadata.
-    pub const fn charge(&self) -> Charge {
+    pub const fn charge(&self) -> i8 {
         self.charge
     }
 
     /// Returns the filename of the metadata.
     pub fn filename(&self) -> Option<&str> {
         self.filename.as_deref()
-    }
-
-    /// Returns the number of scans removed due to low quality.
-    pub fn number_of_scans_removed_due_to_low_quality(&self) -> I {
-        self.merged_scans_metadata.as_ref().map_or(
-            I::ZERO,
-            super::merge_scans_metadata::MergeScansMetadata::removed_due_to_low_quality,
-        )
     }
 }

@@ -4,85 +4,151 @@ use std::{fmt::Debug, str::FromStr};
 use crate::prelude::*;
 
 /// Builder for metadata parsed from MGF header lines.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct MascotGenericFormatMetadataBuilder<I, F> {
+#[derive(Debug, Clone, PartialEq)]
+pub struct MascotGenericFormatMetadataBuilder<I> {
     feature_id: Option<I>,
-    parent_ion_mass: Option<F>,
-    retention_time: Option<F>,
-    charge: Option<Charge>,
-    minus_one_scans: bool,
-    merge_scans_metadata_builder: Option<MergeScansMetadataBuilder<I>>,
+    level: Option<u8>,
+    parent_ion_mass: Option<f64>,
+    retention_time: Option<f64>,
+    charge: Option<i8>,
+    merged_scan_count: Option<I>,
+    retained_merged_scan_count: Option<I>,
+    merged_scans_removed_due_to_low_quality: Option<I>,
+    merged_scans_removed_due_to_low_cosine: Option<I>,
+    merged_total_scan_count: Option<I>,
     filename: Option<String>,
 }
 
-impl<I, F> Default for MascotGenericFormatMetadataBuilder<I, F> {
+impl<I> Default for MascotGenericFormatMetadataBuilder<I> {
     fn default() -> Self {
         Self {
             feature_id: None,
+            level: None,
             parent_ion_mass: None,
             retention_time: None,
             charge: None,
-            minus_one_scans: false,
-            merge_scans_metadata_builder: None,
+            merged_scan_count: None,
+            retained_merged_scan_count: None,
+            merged_scans_removed_due_to_low_quality: None,
+            merged_scans_removed_due_to_low_cosine: None,
+            merged_total_scan_count: None,
             filename: None,
         }
     }
 }
 
-impl<
-        I: Copy + PartialEq + Eq + From<usize> + Debug + FromStr + Add<Output = I> + Zero,
-        F: StrictlyPositive + Copy,
-    > MascotGenericFormatMetadataBuilder<I, F>
+impl<I> MascotGenericFormatMetadataBuilder<I> {
+    const fn has_merged_scan_metadata(&self) -> bool {
+        self.merged_scan_count.is_some()
+            || self.retained_merged_scan_count.is_some()
+            || self.merged_scans_removed_due_to_low_quality.is_some()
+            || self.merged_scans_removed_due_to_low_cosine.is_some()
+            || self.merged_total_scan_count.is_some()
+    }
+
+    const fn merged_scan_metadata_is_complete(&self) -> bool {
+        self.merged_scan_count.is_some()
+            && self.retained_merged_scan_count.is_some()
+            && self.merged_scans_removed_due_to_low_quality.is_some()
+            && self.merged_scans_removed_due_to_low_cosine.is_some()
+            && self.merged_total_scan_count.is_some()
+    }
+}
+
+impl<I: Copy + PartialEq + Eq + From<usize> + Debug + FromStr + Add<Output = I>>
+    MascotGenericFormatMetadataBuilder<I>
 {
+    fn validate_merged_scan_metadata(&self) -> Result<()> {
+        if !self.has_merged_scan_metadata() {
+            return Ok(());
+        }
+
+        let merged_scan_count = self.merged_scan_count.ok_or(MascotError::MissingField {
+            builder: "MascotGenericFormatMetadata",
+            field: "merged_scan_count",
+        })?;
+        let retained_merged_scan_count =
+            self.retained_merged_scan_count
+                .ok_or(MascotError::MissingField {
+                    builder: "MascotGenericFormatMetadata",
+                    field: "retained_merged_scan_count",
+                })?;
+        let removed_due_to_low_quality =
+            self.merged_scans_removed_due_to_low_quality
+                .ok_or(MascotError::MissingField {
+                    builder: "MascotGenericFormatMetadata",
+                    field: "merged_scans_removed_due_to_low_quality",
+                })?;
+        let removed_due_to_low_cosine =
+            self.merged_scans_removed_due_to_low_cosine
+                .ok_or(MascotError::MissingField {
+                    builder: "MascotGenericFormatMetadata",
+                    field: "merged_scans_removed_due_to_low_cosine",
+                })?;
+        let total_scan_count = self
+            .merged_total_scan_count
+            .ok_or(MascotError::MissingField {
+                builder: "MascotGenericFormatMetadata",
+                field: "merged_total_scan_count",
+            })?;
+
+        if retained_merged_scan_count + removed_due_to_low_quality + removed_due_to_low_cosine
+            != total_scan_count
+            || merged_scan_count != retained_merged_scan_count
+        {
+            return Err(MascotError::MergedScanStatisticsMismatch);
+        }
+
+        Ok(())
+    }
+
     /// Builds parsed MGF metadata.
     ///
     /// # Errors
-    /// Returns an error if required metadata fields are missing, the scan status
-    /// represents a partial read, or merged-scan metadata is invalid.
-    pub fn build(self) -> Result<MascotGenericFormatMetadata<I, F>, String> {
-        if self.minus_one_scans {
-            return Err(concat!(
-                "Could not build MascotGenericFormatMetadata as the scan status is ",
-                "currently set to -1, which indicates a partial read fragment ion spectrum."
-            )
-            .to_string());
-        }
+    /// Returns an error if required metadata fields are missing or merged-scan
+    /// metadata is invalid.
+    pub(super) fn build(self) -> Result<MascotGenericFormatMetadata<I>> {
+        self.validate_merged_scan_metadata()?;
 
         MascotGenericFormatMetadata::new(
-            self.feature_id.ok_or_else(|| {
-                "Could not build MascotGenericFormatMetadata: feature_id is missing".to_string()
+            self.feature_id.ok_or(MascotError::MissingField {
+                builder: "MascotGenericFormatMetadata",
+                field: "feature_id",
             })?,
-            self.parent_ion_mass.ok_or_else(|| {
-                "Could not build MascotGenericFormatMetadata: parent_ion_mass is missing"
-                    .to_string()
+            self.level.ok_or(MascotError::MissingField {
+                builder: "MascotGenericFormatMetadata",
+                field: "level",
             })?,
-            self.retention_time.ok_or_else(|| {
-                "Could not build MascotGenericFormatMetadata: retention_time is missing".to_string()
+            self.parent_ion_mass.ok_or(MascotError::MissingField {
+                builder: "MascotGenericFormatMetadata",
+                field: "parent_ion_mass",
             })?,
-            self.charge.ok_or_else(|| {
-                "Could not build MascotGenericFormatMetadata: charge is missing".to_string()
+            self.retention_time.ok_or(MascotError::MissingField {
+                builder: "MascotGenericFormatMetadata",
+                field: "retention_time",
             })?,
-            self.merge_scans_metadata_builder
-                .map(super::merge_scans_metadata_builder::MergeScansMetadataBuilder::build)
-                .transpose()?,
+            self.charge.ok_or(MascotError::MissingField {
+                builder: "MascotGenericFormatMetadata",
+                field: "charge",
+            })?,
             self.filename,
         )
     }
 }
 
-impl<
-        I: FromStr + Eq + Copy + Add<Output = I>,
-        F: FromStr + PartialEq + Copy + NaN + StrictlyPositive,
-    > MascotGenericFormatMetadataBuilder<I, F>
-{
-    fn digest_feature_id_line(&mut self, stripped: &str, line: &str) -> Result<(), String> {
-        let feature_id = stripped.parse::<I>().map_err(|_| {
-            format!("Could not parse FEATURE_ID line: could not parse feature ID: {line}")
+impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>> MascotGenericFormatMetadataBuilder<I> {
+    fn digest_feature_id_line(&mut self, stripped: &str, line: &str) -> Result<()> {
+        let feature_id = stripped.parse::<I>().map_err(|_| MascotError::ParseField {
+            field: "feature ID",
+            line: line.to_string(),
         })?;
         match self.feature_id {
-            Some(observed_feature_id) if observed_feature_id != feature_id => Err(format!(
-                "Could not parse FEATURE_ID line: feature_id was already encountered and it is now different: {line}"
-            )),
+            Some(observed_feature_id) if observed_feature_id != feature_id => {
+                Err(MascotError::ConflictingField {
+                    field: "feature_id",
+                    line: line.to_string(),
+                })
+            }
             Some(_) => Ok(()),
             None => {
                 self.feature_id = Some(feature_id);
@@ -91,25 +157,33 @@ impl<
         }
     }
 
-    fn digest_parent_ion_mass_line(&mut self, stripped: &str, line: &str) -> Result<(), String> {
-        let parent_ion_mass = stripped.parse::<F>().map_err(|_| {
-            format!("Could not parse PEPMASS line: could not parse parent ion mass: {line}")
-        })?;
-        if parent_ion_mass.is_nan() {
-            return Err(format!(
-                "The provided line \"{line}\" contains a parent ion mass that has been interpreted as a NaN."
-            ));
+    fn digest_parent_ion_mass_line(&mut self, stripped: &str, line: &str) -> Result<()> {
+        let parent_ion_mass = stripped
+            .parse::<f64>()
+            .map_err(|_| MascotError::ParseField {
+                field: "parent ion mass",
+                line: line.to_string(),
+            })?;
+        if !parent_ion_mass.is_finite() {
+            return Err(MascotError::NonFiniteField {
+                field: "parent ion mass",
+                line: line.to_string(),
+            });
         }
-        if !parent_ion_mass.is_strictly_positive() {
-            return Err(format!(
-                "The provided line \"{line}\" contains a parent ion mass that has been interpreted as a zero or negative value. The parent ion mass must be a strictly positive value."
-            ));
+        if parent_ion_mass <= 0.0 {
+            return Err(MascotError::NonPositiveField {
+                field: "parent ion mass",
+                line: line.to_string(),
+            });
         }
         match self.parent_ion_mass {
-            Some(observed_parent_ion_mass) if parent_ion_mass != observed_parent_ion_mass => {
-                Err(format!(
-                    "Could not parse PEPMASS line: parent_ion_mass was already encountered and it is now different: {line}"
-                ))
+            Some(observed_parent_ion_mass)
+                if parent_ion_mass.to_bits() != observed_parent_ion_mass.to_bits() =>
+            {
+                Err(MascotError::ConflictingField {
+                    field: "parent_ion_mass",
+                    line: line.to_string(),
+                })
             }
             Some(_) => Ok(()),
             None => {
@@ -119,20 +193,57 @@ impl<
         }
     }
 
-    fn digest_scans_line(&mut self, stripped: &str, line: &str) -> Result<(), String> {
+    fn parse_ms_level(line: &str) -> Result<u8> {
+        let level = line
+            .strip_prefix("MSLEVEL=")
+            .ok_or_else(|| MascotError::ParseField {
+                field: "fragmentation level",
+                line: line.to_string(),
+            })?
+            .parse::<u8>()
+            .map_err(|_| MascotError::ParseField {
+                field: "fragmentation level",
+                line: line.to_string(),
+            })?;
+
+        if level == 0 {
+            return Err(MascotError::NonPositiveField {
+                field: "fragmentation level",
+                line: line.to_string(),
+            });
+        }
+
+        Ok(level)
+    }
+
+    fn digest_ms_level_line(&mut self, line: &str) -> Result<()> {
+        let level = Self::parse_ms_level(line)?;
+        match self.level {
+            Some(observed_level) if observed_level != level => Err(MascotError::ConflictingField {
+                field: "level",
+                line: line.to_string(),
+            }),
+            Some(_) => Ok(()),
+            None => {
+                self.level = Some(level);
+                Ok(())
+            }
+        }
+    }
+
+    fn digest_scans_line(&mut self, stripped: &str, line: &str) -> Result<()> {
         if stripped == "-1" {
-            self.minus_one_scans = true;
             return Ok(());
         }
 
-        self.minus_one_scans = false;
-        let scans = stripped
-            .parse::<I>()
-            .map_err(|_| format!("Could not parse SCANS line: could not parse scans: {line}"))?;
+        let scans = stripped.parse::<I>().map_err(|_| MascotError::ParseField {
+            field: "scans",
+            line: line.to_string(),
+        })?;
         match self.feature_id {
-            Some(feature_id) if scans != feature_id => Err(format!(
-                "Could not parse SCANS line: scans is not -1 or equal to the feature ID: {line}"
-            )),
+            Some(feature_id) if scans != feature_id => Err(MascotError::ScanFeatureIdMismatch {
+                line: line.to_string(),
+            }),
             Some(_) => Ok(()),
             None => {
                 self.feature_id = Some(scans);
@@ -141,13 +252,84 @@ impl<
         }
     }
 
-    fn digest_charge_line(&mut self, line: &str) -> Result<(), String> {
-        let charge = Charge::from_str(line)
-            .map_err(|_| format!("Could not parse CHARGE line: could not parse charge: {line}"))?;
+    fn parse_trailing_sign_charge(magnitude: &str, sign: i8, line: &str) -> Result<i8> {
+        if magnitude.starts_with('+') || magnitude.starts_with('-') {
+            return Err(MascotError::InvalidCharge {
+                line: line.to_string(),
+                reason: "signed magnitude is ambiguous",
+            });
+        }
+
+        let magnitude = magnitude
+            .parse::<u8>()
+            .map_err(|_| MascotError::InvalidCharge {
+                line: line.to_string(),
+                reason: "could not parse charge magnitude",
+            })?;
+        if magnitude == 0 {
+            return Err(MascotError::InvalidCharge {
+                line: line.to_string(),
+                reason: "charge is zero",
+            });
+        }
+
+        if sign.is_positive() {
+            i8::try_from(magnitude).map_err(|_| MascotError::InvalidCharge {
+                line: line.to_string(),
+                reason: "positive charge is out of range",
+            })
+        } else if magnitude == 128 {
+            Ok(i8::MIN)
+        } else {
+            i8::try_from(magnitude)
+                .map(|charge| -charge)
+                .map_err(|_| MascotError::InvalidCharge {
+                    line: line.to_string(),
+                    reason: "negative charge is out of range",
+                })
+        }
+    }
+
+    fn parse_charge_line(line: &str) -> Result<i8> {
+        let charge = line
+            .strip_prefix("CHARGE=")
+            .ok_or_else(|| MascotError::InvalidCharge {
+                line: line.to_string(),
+                reason: "missing prefix",
+            })?;
+
+        let charge = if let Some(magnitude) = charge.strip_suffix('+') {
+            Self::parse_trailing_sign_charge(magnitude, 1, line)?
+        } else if let Some(magnitude) = charge.strip_suffix('-') {
+            Self::parse_trailing_sign_charge(magnitude, -1, line)?
+        } else {
+            charge
+                .parse::<i8>()
+                .map_err(|_| MascotError::InvalidCharge {
+                    line: line.to_string(),
+                    reason: "could not parse charge",
+                })?
+        };
+
+        if charge == 0 {
+            return Err(MascotError::InvalidCharge {
+                line: line.to_string(),
+                reason: "charge is zero",
+            });
+        }
+
+        Ok(charge)
+    }
+
+    fn digest_charge_line(&mut self, line: &str) -> Result<()> {
+        let charge = Self::parse_charge_line(line)?;
         match self.charge {
-            Some(observed_charge) if observed_charge != charge => Err(format!(
-                "Could not parse CHARGE line: charge was already encountered and it is now different: {line}"
-            )),
+            Some(observed_charge) if observed_charge != charge => {
+                Err(MascotError::ConflictingField {
+                    field: "charge",
+                    line: line.to_string(),
+                })
+            }
             Some(_) => Ok(()),
             None => {
                 self.charge = Some(charge);
@@ -156,25 +338,33 @@ impl<
         }
     }
 
-    fn digest_retention_time_line(&mut self, stripped: &str, line: &str) -> Result<(), String> {
-        let retention_time = stripped.parse::<F>().map_err(|_| {
-            format!("Could not parse RTINSECONDS line: could not parse retention time: {line}")
-        })?;
-        if retention_time.is_nan() {
-            return Err(format!(
-                "The provided line \"{line}\" contains a retention time that has been interpreted as a NaN."
-            ));
+    fn digest_retention_time_line(&mut self, stripped: &str, line: &str) -> Result<()> {
+        let retention_time = stripped
+            .parse::<f64>()
+            .map_err(|_| MascotError::ParseField {
+                field: "retention time",
+                line: line.to_string(),
+            })?;
+        if !retention_time.is_finite() {
+            return Err(MascotError::NonFiniteField {
+                field: "retention time",
+                line: line.to_string(),
+            });
         }
-        if !retention_time.is_strictly_positive() {
-            return Err(format!(
-                "The provided line \"{line}\" contains a retention time that has been interpreted as a zero or negative value. The retention time must be a strictly positive value."
-            ));
+        if retention_time <= 0.0 {
+            return Err(MascotError::NonPositiveField {
+                field: "retention time",
+                line: line.to_string(),
+            });
         }
         match self.retention_time {
-            Some(observed_retention_time) if observed_retention_time != retention_time => {
-                Err(format!(
-                    "Could not parse RTINSECONDS line: retention_time was already encountered and it is now different: {line}"
-                ))
+            Some(observed_retention_time)
+                if observed_retention_time.to_bits() != retention_time.to_bits() =>
+            {
+                Err(MascotError::ConflictingField {
+                    field: "retention_time",
+                    line: line.to_string(),
+                })
             }
             Some(_) => Ok(()),
             None => {
@@ -184,12 +374,15 @@ impl<
         }
     }
 
-    fn digest_filename_line(&mut self, stripped: &str, line: &str) -> Result<(), String> {
+    fn digest_filename_line(&mut self, stripped: &str, line: &str) -> Result<()> {
         let filename = stripped.to_string();
         match self.filename.as_ref() {
-            Some(observed_filename) if observed_filename != &filename => Err(format!(
-                "Could not parse FILENAME line: filename was already encountered and it is now different: {line}"
-            )),
+            Some(observed_filename) if observed_filename != &filename => {
+                Err(MascotError::ConflictingField {
+                    field: "filename",
+                    line: line.to_string(),
+                })
+            }
             Some(_) => Ok(()),
             None => {
                 self.filename = Some(filename);
@@ -198,18 +391,122 @@ impl<
         }
     }
 
-    fn digest_merge_scans_line(&mut self, line: &str) -> Result<(), String> {
-        self.merge_scans_metadata_builder
-            .get_or_insert_with(MergeScansMetadataBuilder::default)
-            .digest_line(line)
+    fn is_merged_scan_metadata_line(line: &str) -> bool {
+        line.starts_with("MERGED_SCANS=") || line.starts_with("MERGED_STATS=")
+    }
+
+    fn unsupported_merged_scan_line_error(line: &str) -> MascotError {
+        MascotError::UnsupportedLine {
+            parser: "MascotGenericFormatMetadataBuilder",
+            line: line.to_string(),
+        }
+    }
+
+    fn parse_merged_scan_count(value: &str, line: &str, label: &'static str) -> Result<I> {
+        value
+            .trim()
+            .parse::<I>()
+            .map_err(|_| MascotError::ParseField {
+                field: label,
+                line: line.to_string(),
+            })
+    }
+
+    fn parse_first_merged_scan_count(fragment: &str, line: &str, label: &'static str) -> Result<I> {
+        let value = fragment
+            .split_whitespace()
+            .next()
+            .ok_or_else(|| Self::unsupported_merged_scan_line_error(line))?;
+        Self::parse_merged_scan_count(value, line, label)
+    }
+
+    fn digest_merged_scans_line(&mut self, line: &str) -> Result<()> {
+        let stripped = line
+            .strip_prefix("MERGED_SCANS=")
+            .ok_or_else(|| Self::unsupported_merged_scan_line_error(line))?;
+        let mut scan_count = 0_usize;
+        for scan in stripped.split(',') {
+            scan.parse::<I>().map_err(|_| MascotError::ParseField {
+                field: "merged scan numbers",
+                line: line.to_string(),
+            })?;
+            scan_count += 1;
+        }
+
+        let scan_count = I::from(scan_count);
+        if self
+            .retained_merged_scan_count
+            .is_some_and(|retained_count| retained_count != scan_count)
+        {
+            return Err(MascotError::MergedScanStatisticsMismatch);
+        }
+        self.merged_scan_count = Some(scan_count);
+        Ok(())
+    }
+
+    fn digest_merged_stats_line(&mut self, line: &str) -> Result<()> {
+        let stripped = line
+            .strip_prefix("MERGED_STATS=")
+            .ok_or_else(|| Self::unsupported_merged_scan_line_error(line))?;
+        let (fraction, removed_scans) = stripped
+            .split_once('(')
+            .ok_or_else(|| Self::unsupported_merged_scan_line_error(stripped))?;
+        let (scans_merged, total_scans) = fraction
+            .split_once('/')
+            .ok_or_else(|| Self::unsupported_merged_scan_line_error(stripped))?;
+        let (low_quality, low_cosine) = removed_scans
+            .split_once(',')
+            .ok_or_else(|| Self::unsupported_merged_scan_line_error(stripped))?;
+
+        let scans_merged = Self::parse_merged_scan_count(
+            scans_merged,
+            stripped,
+            "the number of scans that were merged",
+        )?;
+        let total_scans =
+            Self::parse_merged_scan_count(total_scans, stripped, "the total number of scans")?;
+        let removed_due_to_low_quality = Self::parse_first_merged_scan_count(
+            low_quality,
+            stripped,
+            "the number of scans that were removed due to low quality",
+        )?;
+        let removed_due_to_low_cosine = Self::parse_first_merged_scan_count(
+            low_cosine,
+            stripped,
+            "the number of scans that were removed due to low cosine",
+        )?;
+
+        if scans_merged + removed_due_to_low_quality + removed_due_to_low_cosine != total_scans {
+            return Err(MascotError::MergedScanStatisticsMismatch);
+        }
+        if self
+            .merged_scan_count
+            .is_some_and(|scan_count| scan_count != scans_merged)
+        {
+            return Err(MascotError::MergedScanStatisticsMismatch);
+        }
+
+        self.retained_merged_scan_count = Some(scans_merged);
+        self.merged_scans_removed_due_to_low_quality = Some(removed_due_to_low_quality);
+        self.merged_scans_removed_due_to_low_cosine = Some(removed_due_to_low_cosine);
+        self.merged_total_scan_count = Some(total_scans);
+        Ok(())
+    }
+
+    fn digest_merge_scans_line(&mut self, line: &str) -> Result<()> {
+        if line.starts_with("MERGED_SCANS=") {
+            return self.digest_merged_scans_line(line);
+        }
+
+        if line.starts_with("MERGED_STATS=") {
+            return self.digest_merged_stats_line(line);
+        }
+
+        Err(Self::unsupported_merged_scan_line_error(line))
     }
 }
 
-impl<
-        I: FromStr + Eq + Copy + Add<Output = I>,
-        F: FromStr + PartialEq + Copy + NaN + StrictlyPositive,
-    > LineParser for MascotGenericFormatMetadataBuilder<I, F>
-{
+impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>> MascotGenericFormatMetadataBuilder<I> {
     /// Returns whether the line can be parsed by this parser.
     ///
     /// # Arguments
@@ -217,47 +514,27 @@ impl<
     ///
     /// # Examples
     /// The parser should be able to parse any of the following lines:
-    ///
-    /// ```rust
-    /// use mascot_rs::prelude::*;
-    ///
-    /// for line in [
-    ///     "FEATURE_ID=1",
-    ///     "PEPMASS=381.0795",
-    ///     "SCANS=1",
-    ///     "CHARGE=1",
-    ///     "CHARGE=1+",
-    ///     "CHARGE=2+",
-    ///     "CHARGE=3+",
-    ///     "CHARGE=4+",
-    ///     "RTINSECONDS=37.083",
-    ///     "FILENAME=20220513_PMA_DBGI_01_04_003.mzML",
-    ///     "SCANS=-1",
-    /// ] {
-    ///     assert!(MascotGenericFormatMetadataBuilder::<usize, f64>::can_parse_line(line));
-    /// }
-    /// ```
-    fn can_parse_line(line: &str) -> bool {
+    /// feature ids, parent ion masses, scan ids, charges, retention times,
+    /// filenames, partial-read scan markers, and merged-scan metadata lines.
+    pub(super) fn can_parse_line(line: &str) -> bool {
         line.starts_with("FEATURE_ID=")
             || line.starts_with("PEPMASS=")
+            || line.starts_with("MSLEVEL=")
             || line.starts_with("SCANS=")
             || line.starts_with("RTINSECONDS=")
             || line.starts_with("FILENAME=")
             || line.starts_with("CHARGE=")
-            || MergeScansMetadataBuilder::<I>::can_parse_line(line)
+            || Self::is_merged_scan_metadata_line(line)
     }
 
     /// Returns whether the parser can build a [`MascotGenericFormatMetadata`] from the lines
-    fn can_build(&self) -> bool {
+    pub(super) const fn can_build(&self) -> bool {
         self.feature_id.is_some()
+            && self.level.is_some()
             && self.parent_ion_mass.is_some()
             && self.retention_time.is_some()
             && self.charge.is_some()
-            && !self.minus_one_scans
-            && self
-                .merge_scans_metadata_builder
-                .as_ref()
-                .is_none_or(super::line_parser::LineParser::can_build)
+            && (!self.has_merged_scan_metadata() || self.merged_scan_metadata_is_complete())
     }
 
     /// Parses a line to a [`MascotGenericFormatMetadataBuilder`].
@@ -270,64 +547,17 @@ impl<
     /// * If scans is not -1 or equal to the feature ID.
     /// * If pepmass was already encountered and it is now different.
     /// * If rtinseconds was already encountered and it is now different.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use mascot_rs::prelude::*;
-    /// use std::str::FromStr;
-    ///
-    /// let mut parser = MascotGenericFormatMetadataBuilder::<usize, f64>::default();
-    ///
-    /// parser.digest_line("FEATURE_ID=1").unwrap();
-    /// parser.digest_line("PEPMASS=381.0795").unwrap();
-    /// parser.digest_line("SCANS=1").unwrap();
-    /// parser.digest_line("CHARGE=1").unwrap();
-    /// parser.digest_line("MERGED_SCANS=1567,1540");
-    /// parser.digest_line("MERGED_STATS=2 / 2 (0 removed due to low quality, 0 removed due to low cosine).");
-    /// parser.digest_line("RTINSECONDS=37.083").unwrap();
-    /// parser.digest_line("FILENAME=20220513_PMA_DBGI_01_04_003.mzML").unwrap();
-    ///
-    /// let mascot_generic_format_metadata = parser.build().unwrap();
-    ///
-    /// assert_eq!(mascot_generic_format_metadata.feature_id(), 1);
-    /// assert_eq!(mascot_generic_format_metadata.parent_ion_mass(), 381.0795);
-    /// assert_eq!(mascot_generic_format_metadata.retention_time(), 37.083);
-    /// assert_eq!(mascot_generic_format_metadata.charge(), Charge::One);
-    /// assert_eq!(mascot_generic_format_metadata.filename(), Some("20220513_PMA_DBGI_01_04_003.mzML"));
-    ///
-    /// let mut parser = MascotGenericFormatMetadataBuilder::<usize, f64>::default();
-    ///
-    /// parser.digest_line("FEATURE_ID=1").unwrap();
-    /// assert!(parser.digest_line("FEATURE_ID=2").is_err());
-    ///
-    /// let mut parser = MascotGenericFormatMetadataBuilder::<usize, f64>::default();
-    /// parser.digest_line("FEATURE_ID=1").unwrap();
-    /// assert!(parser.digest_line("SCANS=2").is_err());
-    ///
-    /// let mut parser = MascotGenericFormatMetadataBuilder::<usize, f64>::default();
-    /// parser.digest_line("PEPMASS=381.0795").unwrap();
-    /// assert!(parser.digest_line("PEPMASS=381.0796").is_err(), concat!(
-    ///     "Parser {:?} did not raise error."
-    /// ), parser);
-    ///
-    /// let mut parser = MascotGenericFormatMetadataBuilder::<usize, f64>::default();
-    /// parser.digest_line("RTINSECONDS=37.083").unwrap();
-    /// assert!(parser.digest_line("RTINSECONDS=37.084").is_err());
-    ///
-    /// let mut parser = MascotGenericFormatMetadataBuilder::<usize, f64>::default();
-    /// parser.digest_line("CHARGE=1").unwrap();
-    /// assert!(parser.digest_line("CHARGE=2").is_err());
-    ///
-    /// ```
-    ///
-    fn digest_line(&mut self, line: &str) -> Result<(), String> {
+    pub(super) fn digest_line(&mut self, line: &str) -> Result<()> {
         if let Some(stripped) = line.strip_prefix("FEATURE_ID=") {
             return self.digest_feature_id_line(stripped, line);
         }
 
         if let Some(stripped) = line.strip_prefix("PEPMASS=") {
             return self.digest_parent_ion_mass_line(stripped, line);
+        }
+
+        if line.starts_with("MSLEVEL=") {
+            return self.digest_ms_level_line(line);
         }
 
         if let Some(stripped) = line.strip_prefix("SCANS=") {
@@ -346,12 +576,149 @@ impl<
             return self.digest_filename_line(stripped, line);
         }
 
-        if MergeScansMetadataBuilder::<I>::can_parse_line(line) {
+        if Self::is_merged_scan_metadata_line(line) {
             return self.digest_merge_scans_line(line);
         }
 
-        Err(format!(
-            "Encountered unexpected line while parsing MascotGenericFormatMetadata: {line}"
-        ))
+        Err(MascotError::UnsupportedLine {
+            parser: "MascotGenericFormatMetadataBuilder",
+            line: line.to_string(),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn can_parse_expected_metadata_lines() {
+        for line in [
+            "FEATURE_ID=1",
+            "PEPMASS=381.0795",
+            "MSLEVEL=2",
+            "SCANS=1",
+            "CHARGE=1",
+            "CHARGE=1+",
+            "CHARGE=2+",
+            "CHARGE=3+",
+            "CHARGE=4+",
+            "CHARGE=5+",
+            "CHARGE=-1",
+            "CHARGE=1-",
+            "RTINSECONDS=37.083",
+            "FILENAME=20220513_PMA_DBGI_01_04_003.mzML",
+            "SCANS=-1",
+        ] {
+            assert!(MascotGenericFormatMetadataBuilder::<usize>::can_parse_line(
+                line
+            ));
+        }
+    }
+
+    #[test]
+    fn builds_metadata_from_lines() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+
+        parser.digest_line("FEATURE_ID=1")?;
+        parser.digest_line("PEPMASS=381.0795")?;
+        parser.digest_line("MSLEVEL=2")?;
+        parser.digest_line("SCANS=1")?;
+        parser.digest_line("CHARGE=1")?;
+        parser.digest_line("MERGED_SCANS=1567,1540")?;
+        parser.digest_line(
+            "MERGED_STATS=2 / 2 (0 removed due to low quality, 0 removed due to low cosine).",
+        )?;
+        parser.digest_line("RTINSECONDS=37.083")?;
+        parser.digest_line("FILENAME=20220513_PMA_DBGI_01_04_003.mzML")?;
+
+        let mascot_generic_format_metadata = parser.build()?;
+
+        assert_eq!(mascot_generic_format_metadata.feature_id(), 1);
+        assert_eq!(mascot_generic_format_metadata.level(), 2);
+        assert_eq!(
+            mascot_generic_format_metadata.parent_ion_mass().to_bits(),
+            381.0795_f64.to_bits()
+        );
+        assert_eq!(
+            mascot_generic_format_metadata.retention_time().to_bits(),
+            37.083_f64.to_bits()
+        );
+        assert_eq!(mascot_generic_format_metadata.charge(), 1);
+        assert_eq!(
+            mascot_generic_format_metadata.filename(),
+            Some("20220513_PMA_DBGI_01_04_003.mzML")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn partial_merged_scan_metadata_prevents_building() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+
+        parser.digest_line("FEATURE_ID=1")?;
+        parser.digest_line("PEPMASS=381.0795")?;
+        parser.digest_line("MSLEVEL=2")?;
+        parser.digest_line("SCANS=1")?;
+        parser.digest_line("CHARGE=1")?;
+        parser.digest_line("RTINSECONDS=37.083")?;
+        parser.digest_line("MERGED_SCANS=1567,1540")?;
+
+        assert!(!parser.can_build());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_mismatched_merged_scan_metadata() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        parser.digest_line("MERGED_SCANS=1567,1540")?;
+
+        assert!(matches!(
+            parser.digest_line(
+                "MERGED_STATS=1 / 1 (0 removed due to low quality, 0 removed due to low cosine)."
+            ),
+            Err(MascotError::MergedScanStatisticsMismatch)
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_conflicting_feature_id() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        parser.digest_line("FEATURE_ID=1")?;
+        assert!(parser.digest_line("FEATURE_ID=2").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_conflicting_scan_id() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        parser.digest_line("FEATURE_ID=1")?;
+        assert!(parser.digest_line("SCANS=2").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_conflicting_parent_ion_mass() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        parser.digest_line("PEPMASS=381.0795")?;
+        assert!(parser.digest_line("PEPMASS=381.0796").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_conflicting_retention_time() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        parser.digest_line("RTINSECONDS=37.083")?;
+        assert!(parser.digest_line("RTINSECONDS=37.084").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_conflicting_charge() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        parser.digest_line("CHARGE=1")?;
+        assert!(parser.digest_line("CHARGE=2").is_err());
+        Ok(())
     }
 }

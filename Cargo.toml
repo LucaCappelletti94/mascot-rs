@@ -13,6 +13,10 @@ categories = [
     "science",
 ]
 
+[dependencies]
+mass_spectrometry = { git = "https://github.com/earth-metabolome-initiative/mass-spectrometry-traits", rev = "be14205296c74bbca9fb6f9620bfb2885798aaa6" }
+thiserror = "2.0"
+
 [lints.rust]
 missing_docs = "deny"
 warnings = "deny"

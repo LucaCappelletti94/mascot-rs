@@ -1,67 +1,81 @@
-use crate::prelude::*;
-use std::collections::HashSet;
 use std::fmt::Debug;
-use std::hash::Hash;
-use std::ops::{Add, Index, IndexMut, Sub};
+use std::ops::{Add, Index};
 use std::str::FromStr;
 
+use mass_spectrometry::prelude::{GenericSpectrum, Spectra, Spectrum, SpectrumMut};
+
+use crate::error::{MascotError, Result};
+use crate::mascot_generic_format_builder::MascotGenericFormatBuilder;
+use crate::mascot_generic_format_metadata::MascotGenericFormatMetadata;
+
 /// A single Mascot Generic Format ion block with metadata and spectra.
-#[derive(Debug, Clone)]
-pub struct MascotGenericFormat<I, F> {
-    metadata: MascotGenericFormatMetadata<I, F>,
-    data: Vec<MascotGenericFormatData<F>>,
+///
+/// When used as a [`Spectrum`], the record exposes the peaks from this MGF ion
+/// block.
+#[derive(Debug)]
+pub struct MascotGenericFormat<I> {
+    metadata: MascotGenericFormatMetadata<I>,
+    spectrum: GenericSpectrum,
 }
 
-impl<
-        I: Copy + Zero + PartialEq + Debug + Add<Output = I> + Eq,
-        F: Copy
-            + StrictlyPositive
-            + PartialEq
-            + PartialOrd
-            + Debug
-            + Add<F, Output = F>
-            + Sub<F, Output = F>,
-    > MascotGenericFormat<I, F>
-{
+impl<I: Copy> MascotGenericFormat<I> {
     /// Creates a new [`MascotGenericFormat`].
     ///
     /// # Errors
-    /// Returns an error if no fragmentation data is provided, or if first-level
-    /// fragmentation data is present and its minimum mass-charge ratio differs
-    /// from the metadata parent ion mass.
+    /// Returns an error if no peak data is provided, if the peak values are
+    /// invalid, or if first-level data is incompatible with the metadata parent
+    /// ion mass.
     pub fn new(
-        metadata: MascotGenericFormatMetadata<I, F>,
-        data: Vec<MascotGenericFormatData<F>>,
-    ) -> Result<Self, String> {
-        if data.is_empty() {
-            return Err("Could not create MascotGenericFormat: data must not be empty".to_string());
+        metadata: MascotGenericFormatMetadata<I>,
+        mass_divided_by_charge_ratios: Vec<f64>,
+        fragment_intensities: Vec<f64>,
+    ) -> Result<Self> {
+        if mass_divided_by_charge_ratios.len() != fragment_intensities.len() {
+            return Err(MascotError::PeakVectorLengthMismatch {
+                mz_len: mass_divided_by_charge_ratios.len(),
+                intensity_len: fragment_intensities.len(),
+            });
         }
 
-        // We need to check that, if the data provided is compatible with
-        // the metadata provided. Specifically, if the minimum MSLEVEL
-        // of the data is equal to one, then the PEPMASS must be equal to
-        // the minimum mass value reported in the data associated to the
-        // first level.
-        let mgf = Self { metadata, data };
+        if mass_divided_by_charge_ratios.is_empty() {
+            return Err(MascotError::EmptyPeakVectors);
+        }
 
-        if let Ok(first_mgf) = mgf.get_first_fragmentation_level() {
-            if mgf.parent_ion_mass() != first_mgf.min_mass_divided_by_charge_ratio() {
-                return Err(format!(
-                    concat!(
-                        "When the MGF contains data relative to fragmentation level one, ",
-                        "it is necessary for the parent ion mass entry in the metadata (PEPMASS) ",
-                        "to be equal to the minimum mass ratio reported in the data of the associated ",
-                        "first fragmentation level. In this case, we encounted a metadata pepmass ",
-                        "of {:?}, while the minimum mass-charge ratio was {:?}. This may be a data bug ",
-                        "derived from how the file was created."
-                    ),
-                    mgf.parent_ion_mass(),
-                    first_mgf.min_mass_divided_by_charge_ratio()
-                ));
+        let peak_capacity = mass_divided_by_charge_ratios.len();
+        let mut spectrum =
+            GenericSpectrum::try_with_capacity(metadata.parent_ion_mass(), peak_capacity)?;
+
+        let mut peaks = mass_divided_by_charge_ratios
+            .into_iter()
+            .zip(fragment_intensities)
+            .collect::<Vec<_>>();
+        peaks.sort_by(|(left_mz, _), (right_mz, _)| left_mz.total_cmp(right_mz));
+
+        let mut merged_peaks: Vec<(f64, f64)> = Vec::with_capacity(peaks.len());
+        for (mz, intensity) in peaks {
+            if let Some((last_mz, last_intensity)) = merged_peaks.last_mut() {
+                if last_mz.to_bits() == mz.to_bits() {
+                    *last_intensity += intensity;
+                    continue;
+                }
             }
+            merged_peaks.push((mz, intensity));
         }
 
-        Ok(mgf)
+        for (mz, intensity) in merged_peaks {
+            spectrum.add_peak(mz, intensity)?;
+        }
+
+        if metadata.level() == 1
+            && metadata.parent_ion_mass().to_bits() != spectrum.mz_nth(0).to_bits()
+        {
+            return Err(MascotError::FirstLevelParentIonMassMismatch {
+                parent_ion_mass: metadata.parent_ion_mass(),
+                first_level_min_mz: spectrum.mz_nth(0),
+            });
+        }
+
+        Ok(Self { metadata, spectrum })
     }
 
     /// Returns the feature ID of the metadata.
@@ -69,214 +83,94 @@ impl<
         self.metadata.feature_id()
     }
 
-    /// Returns the parent ion mass of the metadata.
-    pub const fn parent_ion_mass(&self) -> F {
-        self.metadata.parent_ion_mass()
-    }
-
-    /// Returns the retention time of the metadata.
-    pub const fn retention_time(&self) -> F {
-        self.metadata.retention_time()
+    /// Returns the MS fragmentation level.
+    pub const fn level(&self) -> u8 {
+        self.metadata.level()
     }
 
     /// Returns the charge of the metadata.
-    pub const fn charge(&self) -> Charge {
+    pub const fn charge(&self) -> i8 {
         self.metadata.charge()
     }
 
-    /// Returns the filename of the metadata.
-    pub fn filename(&self) -> Option<&str> {
-        self.metadata.filename()
+    /// Returns the metadata for this MGF record.
+    #[must_use]
+    pub const fn metadata(&self) -> &MascotGenericFormatMetadata<I> {
+        &self.metadata
+    }
+}
+
+impl<I> AsRef<GenericSpectrum> for MascotGenericFormat<I> {
+    fn as_ref(&self) -> &GenericSpectrum {
+        &self.spectrum
+    }
+}
+
+impl<I> From<MascotGenericFormat<I>> for GenericSpectrum {
+    fn from(value: MascotGenericFormat<I>) -> Self {
+        value.spectrum
+    }
+}
+
+impl<I: Copy> Spectrum for MascotGenericFormat<I> {
+    type SortedIntensitiesIter<'a>
+        = <GenericSpectrum as Spectrum>::SortedIntensitiesIter<'a>
+    where
+        Self: 'a;
+    type SortedMzIter<'a>
+        = <GenericSpectrum as Spectrum>::SortedMzIter<'a>
+    where
+        Self: 'a;
+    type SortedPeaksIter<'a>
+        = <GenericSpectrum as Spectrum>::SortedPeaksIter<'a>
+    where
+        Self: 'a;
+
+    fn len(&self) -> usize {
+        self.spectrum.len()
     }
 
-    /// Returns a reference to the first fragmentation level, if available.
-    ///
-    /// # Errors
-    /// Returns an error if this MGF does not contain first-level fragmentation
-    /// data.
-    pub fn get_first_fragmentation_level(&self) -> Result<&MascotGenericFormatData<F>, String> {
-        self.data
-            .iter()
-            .find(|mgf| mgf.level() == FragmentationSpectraLevel::One)
-            .map_or_else(
-                || {
-                    Err(concat!(
-                        "There is no first fragmentation level available for the ",
-                        "corrent mascot fragmentation object."
-                    )
-                    .to_string())
-                },
-                Ok,
-            )
+    fn intensities(&self) -> Self::SortedIntensitiesIter<'_> {
+        self.spectrum.intensities()
     }
 
-    /// Returns a reference to the second fragmentation level, if available.
-    ///
-    /// # Errors
-    /// Returns an error if this MGF does not contain second-level fragmentation
-    /// data.
-    pub fn get_second_fragmentation_level(&self) -> Result<&MascotGenericFormatData<F>, String> {
-        self.data
-            .iter()
-            .find(|mgf| mgf.level() == FragmentationSpectraLevel::Two)
-            .map_or_else(
-                || {
-                    Err(concat!(
-                        "There is no second fragmentation level available for the ",
-                        "corrent mascot fragmentation object."
-                    )
-                    .to_string())
-                },
-                Ok,
-            )
+    fn intensity_nth(&self, n: usize) -> f64 {
+        self.spectrum.intensity_nth(n)
     }
 
-    /// Returns iterator over the mass over charge ratios of the first fragmentation level.
-    ///
-    /// # Errors
-    /// Returns an error if this MGF does not contain first-level fragmentation
-    /// data.
-    pub fn first_fragmentation_level_mass_divided_by_charge_ratios_iter(
-        &self,
-    ) -> Result<std::slice::Iter<'_, F>, String> {
-        Ok(self
-            .get_first_fragmentation_level()?
-            .mass_divided_by_charge_ratios_iter())
+    fn mz(&self) -> Self::SortedMzIter<'_> {
+        self.spectrum.mz()
     }
 
-    /// Returns iterator over the mass over charge ratios of the second fragmentation level.
-    ///
-    /// # Errors
-    /// Returns an error if this MGF does not contain second-level fragmentation
-    /// data.
-    pub fn second_fragmentation_level_mass_divided_by_charge_ratios_iter(
-        &self,
-    ) -> Result<std::slice::Iter<'_, F>, String> {
-        Ok(self
-            .get_second_fragmentation_level()?
-            .mass_divided_by_charge_ratios_iter())
+    fn mz_from(&self, index: usize) -> Self::SortedMzIter<'_> {
+        self.spectrum.mz_from(index)
     }
 
-    /// Returns iterator over the intensities of the first fragmentation level.
-    ///
-    /// # Errors
-    /// Returns an error if this MGF does not contain first-level fragmentation
-    /// data.
-    pub fn first_fragmentation_level_intensities_iter(
-        &self,
-    ) -> Result<std::slice::Iter<'_, F>, String> {
-        Ok(self
-            .get_first_fragmentation_level()?
-            .fragment_intensities_iter())
+    fn mz_nth(&self, n: usize) -> f64 {
+        self.spectrum.mz_nth(n)
     }
 
-    /// Returns iterator over the intensities of the second fragmentation level.
-    ///
-    /// # Errors
-    /// Returns an error if this MGF does not contain second-level fragmentation
-    /// data.
-    pub fn second_fragmentation_level_intensities_iter(
-        &self,
-    ) -> Result<std::slice::Iter<'_, F>, String> {
-        Ok(self
-            .get_second_fragmentation_level()?
-            .fragment_intensities_iter())
+    fn peaks(&self) -> Self::SortedPeaksIter<'_> {
+        self.spectrum.peaks()
     }
 
-    /// Returns the minimum fragmentation level.
-    pub fn min_fragmentation_level(&self) -> FragmentationSpectraLevel {
-        self.data
-            .iter()
-            .skip(1)
-            .map(super::mascot_generic_format_data::MascotGenericFormatData::level)
-            .fold(self.data[0].level(), FragmentationSpectraLevel::min)
+    fn peak_nth(&self, n: usize) -> (f64, f64) {
+        self.spectrum.peak_nth(n)
     }
 
-    /// Returns the maximum fragmentation level.
-    pub fn max_fragmentation_level(&self) -> FragmentationSpectraLevel {
-        self.data
-            .iter()
-            .skip(1)
-            .map(super::mascot_generic_format_data::MascotGenericFormatData::level)
-            .fold(self.data[0].level(), FragmentationSpectraLevel::max)
-    }
-
-    /// Returns whether the current MGF has second level fragmentation data.
-    pub fn has_second_level(&self) -> bool {
-        self.max_fragmentation_level() == FragmentationSpectraLevel::Two
-    }
-
-    /// Returns indices associated to matching mass-charge ratios of the second level.
-    ///
-    /// # Arguments
-    /// * `other` - The other [`MascotGenericFormat`] object.
-    /// * `tolerance` - The tolerance to use when matching mass-charge ratios.
-    /// * `shift` - The shift to apply to the mass-charge ratios of the other
-    ///
-    /// # Errors
-    /// Returns an error if either MGF does not contain second-level
-    /// fragmentation data.
-    ///
-    /// # Safety
-    /// This function is unsafe because it does not check that the
-    /// mass-charge ratios are sorted in ascending order. The results
-    /// when the requirement is not met are undefined. Also, it does not
-    /// check whether the MGF files have a second level.
-    pub fn find_sorted_matches(
-        &self,
-        other: &Self,
-        tolerance: F,
-        shift: F,
-    ) -> Result<Vec<(usize, usize)>, String> {
-        let mut matches = Vec::new();
-        let mut lowest_index = 0;
-
-        for (i, first_mz) in self
-            .second_fragmentation_level_mass_divided_by_charge_ratios_iter()?
-            .copied()
-            .enumerate()
-        {
-            let low_bound = first_mz - tolerance;
-            let high_bound = first_mz + tolerance;
-
-            for (j, shifted_second_mz) in other
-                .second_fragmentation_level_mass_divided_by_charge_ratios_iter()?
-                .skip(lowest_index)
-                .copied()
-                .map(|second_mz| second_mz + shift)
-                .enumerate()
-            {
-                if shifted_second_mz > high_bound {
-                    break;
-                }
-                if shifted_second_mz < low_bound {
-                    lowest_index = j;
-                    continue;
-                }
-                matches.push((i, j));
-            }
-        }
-
-        Ok(matches)
+    fn precursor_mz(&self) -> f64 {
+        self.metadata.parent_ion_mass()
     }
 }
 
 #[repr(transparent)]
 /// A collection of parsed [`MascotGenericFormat`] records.
-#[derive(Debug, Clone)]
-pub struct MGFVec<I, F> {
-    mascot_generic_formats: Vec<MascotGenericFormat<I, F>>,
+#[derive(Debug)]
+pub struct MGFVec<I> {
+    mascot_generic_formats: Vec<MascotGenericFormat<I>>,
 }
 
-impl<I, F> MGFVec<I, F> {
-    /// Creates an empty MGF collection.
-    #[must_use]
-    pub const fn new() -> Self {
-        Self {
-            mascot_generic_formats: Vec::new(),
-        }
-    }
-
+impl<I> MGFVec<I> {
     /// Create a new vector of MGF objects from the file at the provided path.
     ///
     /// # Arguments
@@ -291,15 +185,15 @@ impl<I, F> MGFVec<I, F> {
     ///
     /// # Examples
     ///
-    /// An example of a document that contains only the first level of
-    /// fragmentation spectra:
+    /// An example of a document that contains one fragmentation spectrum per
+    /// ion block:
     ///
     /// ```
     /// use mascot_rs::prelude::*;
     ///
     /// let path = "tests/data/20220513_PMA_DBGI_01_04_003.mgf";
     ///
-    /// let mascot_generic_formats: MGFVec<usize, f64> = MGFVec::from_path(path).unwrap();
+    /// let mascot_generic_formats: MGFVec<usize> = MGFVec::from_path(path).unwrap();
     ///
     /// assert_eq!(mascot_generic_formats.len(), 74, concat!(
     ///     "The number of MascotGenericFormat objects in the vector should be 74, ",
@@ -315,27 +209,21 @@ impl<I, F> MGFVec<I, F> {
     ///
     /// let path = "tests/data/20220513_PMA_DBGI_01_04_001.mzML_chromatograms_deconvoluted_deisotoped_filtered_enpkg_sirius.mgf";
     ///
-    /// let mascot_generic_formats: MGFVec<usize, f64> = MGFVec::from_path(path).unwrap();
+    /// let mascot_generic_formats: MGFVec<usize> = MGFVec::from_path(path).unwrap();
     ///
-    /// assert_eq!(mascot_generic_formats.len(), 139);
+    /// assert_eq!(mascot_generic_formats.len(), 278);
     ///
     /// ```
     ///
     ///
-    pub fn from_path(path: &str) -> Result<Self, String>
+    pub fn from_path(path: &str) -> Result<Self>
     where
-        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash,
-        F: Copy
-            + StrictlyPositive
-            + FromStr
-            + PartialEq
-            + Debug
-            + PartialOrd
-            + NaN
-            + Sub<F, Output = F>
-            + Add<F, Output = F>,
+        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
     {
-        let file = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        let file = std::fs::read_to_string(path).map_err(|source| MascotError::Io {
+            path: path.to_string(),
+            source,
+        })?;
         Self::try_from_iter(file.lines().filter(|line| !line.is_empty()))
     }
 
@@ -343,56 +231,28 @@ impl<I, F> MGFVec<I, F> {
     ///
     /// # Errors
     /// Returns an error if any input line cannot be parsed, if any MGF section
-    /// cannot be built, or if duplicate feature IDs are found.
-    pub fn try_from_iter<'a, T>(iter: T) -> Result<Self, String>
+    /// cannot be built.
+    pub fn try_from_iter<'a, T>(iter: T) -> Result<Self>
     where
         T: IntoIterator<Item = &'a str>,
-        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug + Zero + Hash,
-        F: Copy
-            + StrictlyPositive
-            + FromStr
-            + PartialEq
-            + Debug
-            + PartialOrd
-            + NaN
-            + Sub<F, Output = F>
-            + Add<F, Output = F>,
+        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
     {
-        let mut mascot_generic_formats = Self::new();
+        let mut mascot_generic_formats = Self {
+            mascot_generic_formats: Vec::new(),
+        };
         let mut mascot_generic_format_builder = MascotGenericFormatBuilder::default();
 
         for line in iter {
             mascot_generic_format_builder.digest_line(line)?;
             if mascot_generic_format_builder.can_build() {
-                mascot_generic_formats.push(mascot_generic_format_builder.build()?);
+                mascot_generic_formats
+                    .mascot_generic_formats
+                    .push(mascot_generic_format_builder.build()?);
                 mascot_generic_format_builder = MascotGenericFormatBuilder::default();
             }
         }
 
-        // We check that the feature id values are unique.
-        let number_of_unique_feature_ids = mascot_generic_formats
-            .iter()
-            .map(MascotGenericFormat::feature_id)
-            .collect::<HashSet<I>>()
-            .len();
-        if number_of_unique_feature_ids != mascot_generic_formats.len() {
-            return Err(format!(
-                concat!(
-                    "We have identified {} duplicated feature ids in the MGF document provided. ",
-                    "Specifically, there were {} entries, but only {} unique feature IDs."
-                ),
-                mascot_generic_formats.len() - number_of_unique_feature_ids,
-                mascot_generic_formats.len(),
-                number_of_unique_feature_ids
-            ));
-        }
-
         Ok(mascot_generic_formats)
-    }
-
-    /// Appends an MGF record to this collection.
-    pub fn push(&mut self, mascot_generic_format: MascotGenericFormat<I, F>) {
-        self.mascot_generic_formats.push(mascot_generic_format);
     }
 
     /// Returns the number of MGF records in the collection.
@@ -406,51 +266,42 @@ impl<I, F> MGFVec<I, F> {
     pub const fn is_empty(&self) -> bool {
         self.mascot_generic_formats.is_empty()
     }
+}
 
-    /// Returns an iterator over the MGF records.
-    pub fn iter(&self) -> impl Iterator<Item = &MascotGenericFormat<I, F>> {
+impl<I> Default for MGFVec<I> {
+    fn default() -> Self {
+        Self {
+            mascot_generic_formats: Vec::new(),
+        }
+    }
+}
+
+impl<I> AsRef<[MascotGenericFormat<I>]> for MGFVec<I> {
+    fn as_ref(&self) -> &[MascotGenericFormat<I>] {
+        self.mascot_generic_formats.as_slice()
+    }
+}
+
+impl<I: Copy> Spectra for MGFVec<I> {
+    type Spectrum = MascotGenericFormat<I>;
+    type SpectraIter<'a>
+        = std::slice::Iter<'a, MascotGenericFormat<I>>
+    where
+        Self: 'a;
+
+    fn spectra(&self) -> Self::SpectraIter<'_> {
         self.mascot_generic_formats.iter()
     }
 
-    /// Returns the collection as a slice.
-    #[must_use]
-    pub const fn as_slice(&self) -> &[MascotGenericFormat<I, F>] {
-        self.mascot_generic_formats.as_slice()
-    }
-
-    /// Returns the collection as a mutable slice.
-    pub const fn as_mut_slice(&mut self) -> &mut [MascotGenericFormat<I, F>] {
-        self.mascot_generic_formats.as_mut_slice()
-    }
-
-    /// Consumes the collection and returns the underlying vector.
-    #[must_use]
-    pub fn into_vec(self) -> Vec<MascotGenericFormat<I, F>> {
-        self.mascot_generic_formats
-    }
-
-    /// Removes all MGF records from the collection.
-    pub fn clear(&mut self) {
-        self.mascot_generic_formats.clear();
+    fn len(&self) -> usize {
+        self.mascot_generic_formats.len()
     }
 }
 
-impl<I, F> Default for MGFVec<I, F> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<I, F> Index<usize> for MGFVec<I, F> {
-    type Output = MascotGenericFormat<I, F>;
+impl<I> Index<usize> for MGFVec<I> {
+    type Output = MascotGenericFormat<I>;
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.mascot_generic_formats[index]
-    }
-}
-
-impl<I, F> IndexMut<usize> for MGFVec<I, F> {
-    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        &mut self.mascot_generic_formats[index]
     }
 }

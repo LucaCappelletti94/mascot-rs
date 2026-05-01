@@ -275,3 +275,39 @@ impl<P: SpectrumFloat> AsRef<MGFVec<usize, P>> for GNPSLoad<P> {
         self.spectra()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn progress_bar_respects_verbosity() {
+        let quiet = GNPSBuilder::<f64>::default();
+        assert!(quiet.progress_bar(Some(10)).is_none());
+
+        let progress_bar = quiet.verbosity(GNPSVerbosity::Indicatif).progress_bar(None);
+        assert!(progress_bar.is_some());
+        if let Some(progress_bar) = progress_bar {
+            progress_bar.finish_and_clear();
+        }
+    }
+
+    #[test]
+    fn parses_content_length_header() -> std::result::Result<(), Box<dyn std::error::Error>> {
+        let response = ureq::http::Response::builder()
+            .header("content-length", "42")
+            .body(ureq::Body::builder().data(Vec::new()))?;
+        assert_eq!(GNPSBuilder::<f64>::content_length(&response), Some(42));
+
+        let response = ureq::http::Response::builder()
+            .header("content-length", "not-a-number")
+            .body(ureq::Body::builder().data(Vec::new()))?;
+        assert_eq!(GNPSBuilder::<f64>::content_length(&response), None);
+
+        let response =
+            ureq::http::Response::builder().body(ureq::Body::builder().data(Vec::new()))?;
+        assert_eq!(GNPSBuilder::<f64>::content_length(&response), None);
+
+        Ok(())
+    }
+}

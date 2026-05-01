@@ -740,4 +740,146 @@ mod tests {
         assert!(parser.digest_line("CHARGE=2").is_err());
         Ok(())
     }
+
+    #[test]
+    fn accepts_repeated_identical_metadata_lines() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+
+        for line in [
+            "FEATURE_ID=1",
+            "FEATURE_ID=1",
+            "PEPMASS=381.0795",
+            "PEPMASS=381.0795",
+            "MSLEVEL=2",
+            "MSLEVEL=2",
+            "SCANS=1",
+            "SCANS=1",
+            "CHARGE=1",
+            "CHARGE=1",
+            "RTINSECONDS=37.083",
+            "RTINSECONDS=37.083",
+            "FILENAME=20220513_PMA_DBGI_01_04_003.mzML",
+            "FILENAME=20220513_PMA_DBGI_01_04_003.mzML",
+        ] {
+            parser.digest_line(line)?;
+        }
+
+        assert!(parser.can_build());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_invalid_scalar_metadata_lines() {
+        for line in [
+            "FEATURE_ID=not-a-number",
+            "PEPMASS=not-a-number",
+            "PEPMASS=NaN",
+            "PEPMASS=0",
+            "MSLEVEL=not-a-number",
+            "MSLEVEL=0",
+            "SCANS=not-a-number",
+            "CHARGE=+1+",
+            "CHARGE=abc+",
+            "CHARGE=not-a-number",
+            "CHARGE=128+",
+            "CHARGE=129+",
+            "CHARGE=129-",
+            "RTINSECONDS=not-a-number",
+            "RTINSECONDS=NaN",
+            "RTINSECONDS=0",
+            "MERGED_SCANS=not-a-number",
+            "MERGED_STATS=not-a-fraction",
+            "MERGED_STATS=1 / 1",
+            "MERGED_STATS=1 / 1 (",
+            "MERGED_STATS=one / 1 (0 removed due to low quality, 0 removed due to low cosine).",
+            "MERGED_STATS=1 / one (0 removed due to low quality, 0 removed due to low cosine).",
+            "MERGED_STATS=1 / 1 (one removed due to low quality, 0 removed due to low cosine).",
+            "MERGED_STATS=1 / 1 (0 removed due to low quality, one removed due to low cosine).",
+            "MERGED_STATS=1 / 2 (0 removed due to low quality, 0 removed due to low cosine).",
+            "UNKNOWN=1",
+        ] {
+            let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+            assert!(parser.digest_line(line).is_err(), "{line}");
+        }
+
+        assert!(MascotGenericFormatMetadataBuilder::<usize>::parse_ms_level("LEVEL=2").is_err());
+
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        assert!(parser.digest_merge_scans_line("MERGED_OTHER=1").is_err());
+    }
+
+    #[test]
+    fn parses_minimum_negative_charge() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        parser.digest_line("CHARGE=128-")?;
+        assert_eq!(parser.charge, Some(i8::MIN));
+        Ok(())
+    }
+
+    #[test]
+    fn reports_missing_required_fields_on_build() -> Result<()> {
+        let parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        assert!(matches!(
+            parser.build(),
+            Err(MascotError::MissingField {
+                field: "feature_id",
+                ..
+            })
+        ));
+
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        parser.digest_line("FEATURE_ID=1")?;
+        assert!(matches!(
+            parser.build(),
+            Err(MascotError::MissingField { field: "level", .. })
+        ));
+
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        parser.digest_line("FEATURE_ID=1")?;
+        parser.digest_line("MSLEVEL=2")?;
+        parser.digest_line("CHARGE=1")?;
+        assert!(matches!(
+            parser.build(),
+            Err(MascotError::MissingField {
+                field: "precursor_mz",
+                ..
+            })
+        ));
+
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        parser.digest_line("FEATURE_ID=1")?;
+        parser.digest_line("PEPMASS=381.0795")?;
+        parser.digest_line("MSLEVEL=2")?;
+        assert!(matches!(
+            parser.build(),
+            Err(MascotError::MissingField {
+                field: "charge",
+                ..
+            })
+        ));
+
+        Ok(())
+    }
+
+    #[test]
+    fn validates_complete_merged_scan_metadata_on_build() {
+        let parser = MascotGenericFormatMetadataBuilder {
+            feature_id: Some(1_usize),
+            level: Some(2),
+            precursor_mz: Some(381.0795),
+            retention_time: None,
+            charge: Some(1),
+            merged_scan_count: Some(1),
+            retained_merged_scan_count: Some(1),
+            merged_scans_removed_due_to_low_quality: Some(1),
+            merged_scans_removed_due_to_low_cosine: Some(0),
+            merged_total_scan_count: Some(1),
+            filename: None,
+        };
+
+        assert!(matches!(
+            parser.build(),
+            Err(MascotError::MergedScanStatisticsMismatch)
+        ));
+    }
 }

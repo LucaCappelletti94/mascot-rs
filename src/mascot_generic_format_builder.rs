@@ -184,4 +184,24 @@ mod tests {
             .is_err());
         Ok(())
     }
+
+    #[test]
+    fn rejects_invalid_peak_lines() -> Result<()> {
+        for line in [
+            " ",
+            "100.0",
+            "not-a-number 1.0",
+            "100.0 not-a-number",
+            "NaN 1.0",
+            "0.0 1.0",
+            "100.0 NaN",
+            "100.0 0.0",
+        ] {
+            let mut builder = MascotGenericFormatBuilder::<usize>::default();
+            builder.digest_line("BEGIN IONS")?;
+            assert!(builder.digest_line(line).is_err());
+        }
+
+        Ok(())
+    }
 }

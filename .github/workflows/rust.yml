@@ -29,3 +29,24 @@ jobs:
         run: cargo test --verbose
       - name: Run clippy
         run: cargo clippy -- -Dclippy::all -Dclippy::cargo
+
+  coverage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-tarpaulin
+        uses: taiki-e/install-action@cargo-tarpaulin
+      - name: Generate coverage
+        run: cargo tarpaulin --engine llvm --out Xml --output-dir coverage
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          use_oidc: true
+          files: coverage/cobertura.xml
+          fail_ci_if_error: true

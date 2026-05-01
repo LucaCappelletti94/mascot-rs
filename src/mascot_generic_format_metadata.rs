@@ -1,6 +1,73 @@
 use alloc::string::{String, ToString};
+use core::{fmt, str::FromStr};
 
 use crate::prelude::*;
+
+/// Ionization polarity reported for an MGF ion block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
+#[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
+#[cfg_attr(feature = "mem_size", mem_size(flat))]
+pub enum IonMode {
+    /// Positive ionization mode.
+    Positive,
+    /// Negative ionization mode.
+    Negative,
+}
+
+impl IonMode {
+    /// Returns the canonical MGF-style string for this ion mode.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Positive => "Positive",
+            Self::Negative => "Negative",
+        }
+    }
+
+    /// Returns whether this is positive ionization mode.
+    #[must_use]
+    pub const fn is_positive(self) -> bool {
+        matches!(self, Self::Positive)
+    }
+
+    /// Returns whether this is negative ionization mode.
+    #[must_use]
+    pub const fn is_negative(self) -> bool {
+        matches!(self, Self::Negative)
+    }
+}
+
+impl fmt::Display for IonMode {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for IonMode {
+    type Err = MascotError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let trimmed = s.trim();
+        if trimmed.eq_ignore_ascii_case("positive")
+            || trimmed.eq_ignore_ascii_case("pos")
+            || trimmed == "+"
+        {
+            return Ok(Self::Positive);
+        }
+        if trimmed.eq_ignore_ascii_case("negative")
+            || trimmed.eq_ignore_ascii_case("neg")
+            || trimmed == "-"
+        {
+            return Ok(Self::Negative);
+        }
+
+        Err(MascotError::ParseField {
+            field: "ion mode",
+            line: s.to_string(),
+        })
+    }
+}
 
 /// Metadata for one Mascot Generic Format ion block.
 #[derive(Debug, Clone)]
@@ -13,6 +80,7 @@ pub struct MascotGenericFormatMetadata<I> {
     charge: i8,
     filename: Option<String>,
     smiles: Option<SmilesMetadata>,
+    ion_mode: Option<IonMode>,
 }
 
 #[derive(Debug, Clone)]
@@ -152,6 +220,61 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
         filename: Option<String>,
         smiles: Option<Smiles>,
     ) -> Result<Self> {
+        Self::new_with_smiles_and_ion_mode(
+            feature_id,
+            level,
+            retention_time,
+            charge,
+            filename,
+            smiles,
+            None,
+        )
+    }
+
+    /// Creates a new [`MascotGenericFormatMetadata`] with optional SMILES and
+    /// ion-mode metadata.
+    ///
+    /// # Arguments
+    /// * `feature_id` - The feature ID of the metadata, if present.
+    /// * `level` - The MS fragmentation level.
+    /// * `retention_time` - The retention time of the metadata, if present.
+    /// * `charge` - The precursor charge of the metadata.
+    /// * `filename` - The filename of the metadata.
+    /// * `smiles` - The parsed SMILES metadata, if present.
+    /// * `ion_mode` - The ionization polarity, if present.
+    ///
+    /// # Errors
+    /// * If `level` is zero.
+    /// * If `retention_time` is present but not finite and strictly positive.
+    /// * If `filename` is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mascot_rs::prelude::*;
+    ///
+    /// let metadata: MascotGenericFormatMetadata<usize> =
+    ///     MascotGenericFormatMetadata::new_with_smiles_and_ion_mode(
+    ///         Some(1),
+    ///         2,
+    ///         None,
+    ///         1,
+    ///         None,
+    ///         None,
+    ///         Some(IonMode::Positive),
+    ///     ).unwrap();
+    ///
+    /// assert_eq!(metadata.ion_mode(), Some(IonMode::Positive));
+    /// ```
+    pub fn new_with_smiles_and_ion_mode(
+        feature_id: Option<I>,
+        level: u8,
+        retention_time: Option<f64>,
+        charge: i8,
+        filename: Option<String>,
+        smiles: Option<Smiles>,
+        ion_mode: Option<IonMode>,
+    ) -> Result<Self> {
         if level == 0 {
             return Err(MascotError::NonPositiveField {
                 field: "fragmentation level",
@@ -188,6 +311,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
             charge,
             filename,
             smiles: smiles.map(SmilesMetadata),
+            ion_mode,
         })
     }
 
@@ -209,6 +333,11 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// Returns the charge of the metadata.
     pub const fn charge(&self) -> i8 {
         self.charge
+    }
+
+    /// Returns the ionization polarity of the metadata, if present.
+    pub const fn ion_mode(&self) -> Option<IonMode> {
+        self.ion_mode
     }
 
     /// Returns the filename of the metadata.

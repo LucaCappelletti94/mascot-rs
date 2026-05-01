@@ -31,6 +31,7 @@ CHARGE=1
 RTINSECONDS=10.0
 MSLEVEL=2
 SMILES=CCO
+IONMODE=Positive
 100.0 2.0
 SCANS=1
 END IONS
@@ -54,6 +55,7 @@ assert_eq!(
     spectra[0].metadata().smiles().map(ToString::to_string).as_deref(),
     Some("CCO")
 );
+assert_eq!(spectra[0].ion_mode(), Some(IonMode::Positive));
 assert_eq!(spectra[1].precursor_mz().to_bits(), 600.0_f64.to_bits());
 # Ok(())
 # }

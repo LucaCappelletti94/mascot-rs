@@ -19,7 +19,7 @@ use crate::error::{MascotError, Result};
 #[cfg(feature = "std")]
 use crate::gnps::GNPSBuilder;
 use crate::mascot_generic_format_builder::MascotGenericFormatBuilder;
-use crate::mascot_generic_format_metadata::MascotGenericFormatMetadata;
+use crate::mascot_generic_format_metadata::{IonMode, MascotGenericFormatMetadata};
 
 /// A single Mascot Generic Format ion block with metadata and spectra.
 ///
@@ -105,6 +105,11 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
     /// Returns the charge of the metadata.
     pub const fn charge(&self) -> i8 {
         self.metadata.charge()
+    }
+
+    /// Returns the ionization polarity of the metadata, if present.
+    pub const fn ion_mode(&self) -> Option<IonMode> {
+        self.metadata.ion_mode()
     }
 
     /// Returns the metadata for this MGF record.

@@ -439,6 +439,7 @@ fn test_spectrum_access_uses_standard_traits() -> Result<()> {
         "RTINSECONDS=10.0",
         "MSLEVEL=2",
         "SMILES=CCO",
+        "IONMODE=Positive",
         "100.0 2.0",
         "200.0 3.0",
         "SCANS=1",
@@ -477,6 +478,8 @@ fn test_spectrum_access_uses_standard_traits() -> Result<()> {
     );
     assert_eq!(mgf[0].peak_nth(1).0.to_bits(), 200.0_f64.to_bits());
     assert_eq!(mgf[0].charge(), 1);
+    assert_eq!(mgf[0].ion_mode(), Some(IonMode::Positive));
+    assert!(mgf[0].ion_mode().is_some_and(IonMode::is_positive));
     assert_eq!(Spectra::len(&mgf), 1);
     assert_eq!(
         mgf.spectra().next().map(MascotGenericFormat::feature_id),
@@ -517,6 +520,71 @@ fn test_metadata_parses_optional_smiles() -> Result<()> {
             .as_deref(),
         Some("CCO")
     );
+
+    Ok(())
+}
+
+#[test]
+fn test_metadata_parses_optional_ion_mode() -> Result<()> {
+    let positive_lines = [
+        "BEGIN IONS",
+        "PEPMASS=500.0",
+        "CHARGE=1",
+        "RTINSECONDS=10.0",
+        "MSLEVEL=2",
+        "IONMODE=Positive",
+        "100.0 2.0",
+        "SCANS=1",
+        "END IONS",
+    ];
+    let negative_lines = [
+        "BEGIN IONS",
+        "PEPMASS=500.0",
+        "CHARGE=1",
+        "RTINSECONDS=10.0",
+        "MSLEVEL=2",
+        "IONMODE=negative",
+        "100.0 2.0",
+        "SCANS=1",
+        "END IONS",
+    ];
+    let missing_lines = [
+        "BEGIN IONS",
+        "PEPMASS=500.0",
+        "CHARGE=1",
+        "RTINSECONDS=10.0",
+        "MSLEVEL=2",
+        "IONMODE=N/A",
+        "100.0 2.0",
+        "SCANS=1",
+        "END IONS",
+    ];
+
+    let positive_mgf: MGFVec<usize> = MGFVec::try_from_iter(positive_lines)?;
+    let negative_mgf: MGFVec<usize> = MGFVec::try_from_iter(negative_lines)?;
+    let missing_mgf: MGFVec<usize> = MGFVec::try_from_iter(missing_lines)?;
+    let metadata: MascotGenericFormatMetadata<usize> =
+        MascotGenericFormatMetadata::new_with_smiles_and_ion_mode(
+            Some(1),
+            2,
+            None,
+            1,
+            None,
+            None,
+            Some(IonMode::Negative),
+        )?;
+
+    assert_eq!(positive_mgf[0].ion_mode(), Some(IonMode::Positive));
+    assert_eq!(
+        positive_mgf[0].metadata().ion_mode(),
+        Some(IonMode::Positive)
+    );
+    assert_eq!(negative_mgf[0].ion_mode(), Some(IonMode::Negative));
+    assert!(negative_mgf[0].ion_mode().is_some_and(IonMode::is_negative));
+    assert_eq!(IonMode::Positive.as_str(), "Positive");
+    assert_eq!(IonMode::Negative.to_string(), "Negative");
+    assert_eq!(metadata.ion_mode(), Some(IonMode::Negative));
+    assert_eq!(missing_mgf[0].ion_mode(), None);
 
     Ok(())
 }
@@ -701,6 +769,7 @@ fn test_gnps_library_records_parse_annotation_metadata() -> Result<()> {
     assert_eq!(mgf[0].feature_id(), Some(1));
     assert_eq!(mgf[0].metadata().retention_time(), None);
     assert!(mgf[0].metadata().smiles().is_none());
+    assert_eq!(mgf[0].metadata().ion_mode(), Some(IonMode::Positive));
     assert_eq!(mgf[0].level(), 2);
     assert_eq!(mgf[0].len(), 3);
 

@@ -19,6 +19,7 @@ pub struct MascotGenericFormatMetadataBuilder<I, P: SpectrumFloat = f64> {
     merged_total_scan_count: Option<I>,
     filename: Option<String>,
     smiles: Option<Smiles>,
+    ion_mode: Option<IonMode>,
 }
 
 impl<I, P: SpectrumFloat> Default for MascotGenericFormatMetadataBuilder<I, P> {
@@ -36,6 +37,7 @@ impl<I, P: SpectrumFloat> Default for MascotGenericFormatMetadataBuilder<I, P> {
             merged_total_scan_count: None,
             filename: None,
             smiles: None,
+            ion_mode: None,
         }
     }
 }
@@ -115,7 +117,7 @@ impl<
     pub(super) fn build(self) -> Result<(MascotGenericFormatMetadata<I>, P)> {
         self.validate_merged_scan_metadata()?;
 
-        let metadata = MascotGenericFormatMetadata::new_with_smiles(
+        let metadata = MascotGenericFormatMetadata::new_with_smiles_and_ion_mode(
             self.feature_id,
             self.level.ok_or(MascotError::MissingField {
                 builder: "MascotGenericFormatMetadata",
@@ -128,6 +130,7 @@ impl<
             })?,
             self.filename,
             self.smiles,
+            self.ion_mode,
         )?;
         let precursor_mz = self.precursor_mz.ok_or(MascotError::MissingField {
             builder: "MascotGenericFormat",
@@ -394,7 +397,7 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
         }
     }
 
-    const fn missing_smiles_value(stripped: &str) -> bool {
+    const fn missing_optional_metadata_value(stripped: &str) -> bool {
         stripped.is_empty()
             || stripped.eq_ignore_ascii_case("N/A")
             || stripped.eq_ignore_ascii_case("NA")
@@ -404,7 +407,7 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
 
     fn digest_smiles_line(&mut self, stripped: &str, line: &str) -> Result<()> {
         let stripped = stripped.trim();
-        if Self::missing_smiles_value(stripped) {
+        if Self::missing_optional_metadata_value(stripped) {
             return Ok(());
         }
 
@@ -424,6 +427,33 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
             Some(_) => Ok(()),
             None => {
                 self.smiles = Some(smiles);
+                Ok(())
+            }
+        }
+    }
+
+    fn digest_ion_mode_line(&mut self, stripped: &str, line: &str) -> Result<()> {
+        let stripped = stripped.trim();
+        if Self::missing_optional_metadata_value(stripped) {
+            return Ok(());
+        }
+
+        let ion_mode = stripped
+            .parse::<IonMode>()
+            .map_err(|_| MascotError::ParseField {
+                field: "ion mode",
+                line: line.to_string(),
+            })?;
+        match self.ion_mode {
+            Some(observed_ion_mode) if observed_ion_mode != ion_mode => {
+                Err(MascotError::ConflictingField {
+                    field: "ion_mode",
+                    line: line.to_string(),
+                })
+            }
+            Some(_) => Ok(()),
+            None => {
+                self.ion_mode = Some(ion_mode);
                 Ok(())
             }
         }
@@ -555,8 +585,8 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
     /// # Examples
     /// The parser should be able to parse any of the following lines:
     /// feature IDs, precursor m/z values, scan ids, charges, retention times,
-    /// filenames, SMILES, partial-read scan markers, and merged-scan metadata
-    /// lines.
+    /// filenames, SMILES, ion-mode metadata, partial-read scan markers, and
+    /// merged-scan metadata lines.
     pub(super) fn can_parse_line(line: &str) -> bool {
         line.starts_with("FEATURE_ID=")
             || line.starts_with("PEPMASS=")
@@ -565,6 +595,7 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
             || line.starts_with("RTINSECONDS=")
             || line.starts_with("FILENAME=")
             || line.starts_with("SMILES=")
+            || line.starts_with("IONMODE=")
             || line.starts_with("CHARGE=")
             || Self::is_merged_scan_metadata_line(line)
     }
@@ -620,6 +651,10 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
             return self.digest_smiles_line(stripped, line);
         }
 
+        if let Some(stripped) = line.strip_prefix("IONMODE=") {
+            return self.digest_ion_mode_line(stripped, line);
+        }
+
         if Self::is_merged_scan_metadata_line(line) {
             return self.digest_merge_scans_line(line);
         }
@@ -654,6 +689,9 @@ mod tests {
             "FILENAME=20220513_PMA_DBGI_01_04_003.mzML",
             "SMILES=CCO",
             "SMILES=N/A",
+            "IONMODE=Positive",
+            "IONMODE=Negative",
+            "IONMODE=N/A",
             "SCANS=-1",
         ] {
             assert!(MascotGenericFormatMetadataBuilder::<usize>::can_parse_line(
@@ -678,6 +716,7 @@ mod tests {
         parser.digest_line("RTINSECONDS=37.083")?;
         parser.digest_line("FILENAME=20220513_PMA_DBGI_01_04_003.mzML")?;
         parser.digest_line("SMILES=CCO")?;
+        parser.digest_line("IONMODE=Positive")?;
 
         let (mascot_generic_format_metadata, precursor_mz) = parser.build()?;
 
@@ -701,6 +740,10 @@ mod tests {
                 .map(ToString::to_string)
                 .as_deref(),
             Some("CCO")
+        );
+        assert_eq!(
+            mascot_generic_format_metadata.ion_mode(),
+            Some(IonMode::Positive)
         );
         Ok(())
     }
@@ -818,6 +861,14 @@ mod tests {
     }
 
     #[test]
+    fn rejects_conflicting_ion_mode() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        parser.digest_line("IONMODE=Positive")?;
+        assert!(parser.digest_line("IONMODE=Negative").is_err());
+        Ok(())
+    }
+
+    #[test]
     fn accepts_repeated_identical_metadata_lines() -> Result<()> {
         let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
 
@@ -839,6 +890,9 @@ mod tests {
             "SMILES=CCO",
             "SMILES=CCO",
             "SMILES=N/A",
+            "IONMODE=Positive",
+            "IONMODE=pos",
+            "IONMODE=N/A",
         ] {
             parser.digest_line(line)?;
         }
@@ -867,6 +921,7 @@ mod tests {
             "RTINSECONDS=NaN",
             "RTINSECONDS=0",
             "SMILES=C(",
+            "IONMODE=unknown",
             "MERGED_SCANS=not-a-number",
             "MERGED_STATS=not-a-fraction",
             "MERGED_STATS=1 / 1",
@@ -944,6 +999,7 @@ mod tests {
             merged_total_scan_count: Some(1),
             filename: None,
             smiles: None,
+            ion_mode: None,
         };
 
         assert!(matches!(

@@ -92,8 +92,8 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
         Ok(Self { metadata, spectrum })
     }
 
-    /// Returns the feature ID of the metadata.
-    pub const fn feature_id(&self) -> I {
+    /// Returns the feature ID of the metadata, if present.
+    pub const fn feature_id(&self) -> Option<I> {
         self.metadata.feature_id()
     }
 

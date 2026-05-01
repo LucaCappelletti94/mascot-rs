@@ -7,7 +7,7 @@ use crate::prelude::*;
 #[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
 #[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
 pub struct MascotGenericFormatMetadata<I> {
-    feature_id: I,
+    feature_id: Option<I>,
     level: u8,
     retention_time: Option<f64>,
     charge: i8,
@@ -30,7 +30,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// Use [`Self::new_with_smiles`] when SMILES metadata is available.
     ///
     /// # Arguments
-    /// * `feature_id` - The feature ID of the metadata.
+    /// * `feature_id` - The feature ID of the metadata, if present.
     /// * `level` - The MS fragmentation level.
     /// * `retention_time` - The retention time of the metadata, if present.
     /// * `charge` - The precursor charge of the metadata.
@@ -49,7 +49,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// ```
     /// use mascot_rs::prelude::*;
     ///
-    /// let feature_id = 1;
+    /// let feature_id = Some(1);
     /// let level = 2;
     /// let retention_time = Some(37.083);
     /// let charge = 1;
@@ -71,7 +71,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// assert!(mascot_generic_format_metadata.smiles().is_none());
     ///
     /// assert!(
-    ///     MascotGenericFormatMetadata::new(
+    ///     MascotGenericFormatMetadata::<usize>::new(
     ///         feature_id,
     ///         0,
     ///         retention_time,
@@ -81,7 +81,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// );
     ///
     /// assert!(
-    ///     MascotGenericFormatMetadata::new(
+    ///     MascotGenericFormatMetadata::<usize>::new(
     ///         feature_id,
     ///         level,
     ///         Some(-1.0),
@@ -91,7 +91,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// );
     ///
     /// assert!(
-    ///     MascotGenericFormatMetadata::new(
+    ///     MascotGenericFormatMetadata::<usize>::new(
     ///         feature_id,
     ///         level,
     ///         retention_time,
@@ -102,7 +102,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     ///
     /// ```
     pub fn new(
-        feature_id: I,
+        feature_id: Option<I>,
         level: u8,
         retention_time: Option<f64>,
         charge: i8,
@@ -115,7 +115,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// metadata.
     ///
     /// # Arguments
-    /// * `feature_id` - The feature ID of the metadata.
+    /// * `feature_id` - The feature ID of the metadata, if present.
     /// * `level` - The MS fragmentation level.
     /// * `retention_time` - The retention time of the metadata, if present.
     /// * `charge` - The precursor charge of the metadata.
@@ -133,8 +133,8 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// use mascot_rs::prelude::*;
     ///
     /// let smiles: Smiles = "CCO".parse().unwrap();
-    /// let metadata = MascotGenericFormatMetadata::new_with_smiles(
-    ///     1_usize,
+    /// let metadata: MascotGenericFormatMetadata<usize> = MascotGenericFormatMetadata::new_with_smiles(
+    ///     Some(1_usize),
     ///     2,
     ///     Some(37.083),
     ///     1,
@@ -145,7 +145,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// assert_eq!(metadata.smiles().map(ToString::to_string).as_deref(), Some("CCO"));
     /// ```
     pub fn new_with_smiles(
-        feature_id: I,
+        feature_id: Option<I>,
         level: u8,
         retention_time: Option<f64>,
         charge: i8,
@@ -191,8 +191,8 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
         })
     }
 
-    /// Returns the feature ID of the metadata.
-    pub const fn feature_id(&self) -> I {
+    /// Returns the feature ID of the metadata, if present.
+    pub const fn feature_id(&self) -> Option<I> {
         self.feature_id
     }
 

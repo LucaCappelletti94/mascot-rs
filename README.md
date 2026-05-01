@@ -6,6 +6,7 @@
 [![Documentation](https://docs.rs/mascot-rs/badge.svg)](https://docs.rs/mascot-rs)
 
 Parsing utilities for Mascot Generic Format (MGF) spectra. Algorithmic work is delegated to the shared [`mass_spectrometry`](https://github.com/earth-metabolome-initiative/mass-spectrometry-traits) traits and structs exposed through the prelude.
+MGF feature IDs are optional; when `FEATURE_ID` is absent and `SCANS=-1`, the parsed metadata stores no feature ID.
 
 ## Feature Flags
 
@@ -48,7 +49,7 @@ END IONS
 let spectra: MGFVec<usize> = document.parse()?;
 
 assert_eq!(spectra.len(), 2);
-assert_eq!(spectra[0].feature_id(), 1);
+assert_eq!(spectra[0].feature_id(), Some(1));
 assert_eq!(
     spectra[0].metadata().smiles().map(ToString::to_string).as_deref(),
     Some("CCO")
@@ -98,7 +99,7 @@ END IONS
 
 let record: MascotGenericFormat<usize> = document.parse()?;
 
-assert_eq!(record.feature_id(), 1);
+assert_eq!(record.feature_id(), Some(1));
 assert_eq!(record.len(), 1);
 assert!(matches!(
     "".parse::<MascotGenericFormat<usize>>(),

@@ -191,7 +191,7 @@ fn test_from_path_reads_zstd_compressed_mgf() -> std::result::Result<(), Box<dyn
 
     std::fs::remove_dir_all(&target_directory)?;
     assert_eq!(mgf.len(), 1);
-    assert_eq!(mgf[0].feature_id(), 1);
+    assert_eq!(mgf[0].feature_id(), Some(1));
     assert_eq!(mgf[0].precursor_mz().to_bits(), 500.0_f32.to_bits());
 
     Ok(())
@@ -254,7 +254,7 @@ fn test_from_path_reads_gzip_compressed_mgf() -> std::result::Result<(), Box<dyn
 
     std::fs::remove_dir_all(&target_directory)?;
     assert_eq!(mgf.len(), 1);
-    assert_eq!(mgf[0].feature_id(), 2);
+    assert_eq!(mgf[0].feature_id(), Some(2));
     assert_eq!(mgf[0].precursor_mz().to_bits(), 600.0_f32.to_bits());
 
     Ok(())
@@ -338,9 +338,9 @@ fn test_duplicate_feature_ids_are_distinct_ion_blocks() -> Result<()> {
 
     assert_eq!(mgf.len(), 2);
     assert_eq!(records.len(), 2);
-    assert_eq!(mgf[0].feature_id(), 1);
+    assert_eq!(mgf[0].feature_id(), Some(1));
     assert_eq!(mgf[0].level(), 1);
-    assert_eq!(mgf[1].feature_id(), 1);
+    assert_eq!(mgf[1].feature_id(), Some(1));
     assert_eq!(mgf[1].level(), 2);
 
     Ok(())
@@ -373,8 +373,8 @@ fn test_mgf_vec_from_str_accepts_multiple_ion_blocks() -> Result<()> {
     let mgf: MGFVec<usize, f32> = document.parse()?;
 
     assert_eq!(mgf.len(), 2);
-    assert_eq!(mgf[0].feature_id(), 1);
-    assert_eq!(mgf[1].feature_id(), 2);
+    assert_eq!(mgf[0].feature_id(), Some(1));
+    assert_eq!(mgf[1].feature_id(), Some(2));
     assert_eq!(mgf[1].precursor_mz().to_bits(), 600.0_f32.to_bits());
 
     Ok(())
@@ -416,7 +416,7 @@ fn test_mgf_from_str_requires_exactly_one_ion_block() -> Result<()> {
 
     let record: MascotGenericFormat<usize> = document.parse()?;
 
-    assert_eq!(record.feature_id(), 1);
+    assert_eq!(record.feature_id(), Some(1));
     assert!(matches!(
         "".parse::<MascotGenericFormat<usize>>(),
         Err(MascotError::SingleRecordExpected { found: 0 })
@@ -480,10 +480,10 @@ fn test_spectrum_access_uses_standard_traits() -> Result<()> {
     assert_eq!(Spectra::len(&mgf), 1);
     assert_eq!(
         mgf.spectra().next().map(MascotGenericFormat::feature_id),
-        Some(1)
+        Some(Some(1))
     );
 
-    let metadata = MascotGenericFormatMetadata::new(1, 2, Some(10.0), 1, None)?;
+    let metadata = MascotGenericFormatMetadata::new(Some(1), 2, Some(10.0), 1, None)?;
     let record = MascotGenericFormat::new(metadata, 500.0, vec![100.0, 200.0], vec![2.0, 3.0])?;
     let spectrum: GenericSpectrum = record.into();
     assert_eq!(spectrum.len(), 2);
@@ -544,7 +544,7 @@ fn test_metadata_rejects_invalid_smiles() {
 
 #[test]
 fn test_record_constructor_rejects_invalid_peak_inputs() -> Result<()> {
-    let metadata = MascotGenericFormatMetadata::new(1, 2, Some(10.0), 1, None)?;
+    let metadata = MascotGenericFormatMetadata::new(Some(1), 2, Some(10.0), 1, None)?;
     assert!(matches!(
         MascotGenericFormat::<usize>::new(metadata.clone(), 500.0, vec![100.0], vec![]),
         Err(MascotError::PeakVectorLengthMismatch { .. })
@@ -554,7 +554,7 @@ fn test_record_constructor_rejects_invalid_peak_inputs() -> Result<()> {
         Err(MascotError::EmptyPeakVectors)
     ));
 
-    let first_level_metadata = MascotGenericFormatMetadata::new(1, 1, Some(10.0), 1, None)?;
+    let first_level_metadata = MascotGenericFormatMetadata::new(Some(1), 1, Some(10.0), 1, None)?;
     assert!(matches!(
         MascotGenericFormat::<usize>::new(first_level_metadata, 500.0, vec![100.0], vec![1.0]),
         Err(MascotError::FirstLevelPrecursorMzMismatch { .. })
@@ -566,28 +566,28 @@ fn test_record_constructor_rejects_invalid_peak_inputs() -> Result<()> {
 #[test]
 fn test_metadata_rejects_invalid_values() {
     assert!(matches!(
-        MascotGenericFormatMetadata::new(1, 0, Some(10.0), 1, None),
+        MascotGenericFormatMetadata::new(Some(1), 0, Some(10.0), 1, None),
         Err(MascotError::NonPositiveField {
             field: "fragmentation level",
             ..
         })
     ));
     assert!(matches!(
-        MascotGenericFormatMetadata::new(1, 2, Some(0.0), 1, None),
+        MascotGenericFormatMetadata::new(Some(1), 2, Some(0.0), 1, None),
         Err(MascotError::NonPositiveField {
             field: "retention time",
             ..
         })
     ));
     assert!(matches!(
-        MascotGenericFormatMetadata::new(1, 2, Some(f64::NAN), 1, None),
+        MascotGenericFormatMetadata::new(Some(1), 2, Some(f64::NAN), 1, None),
         Err(MascotError::NonFiniteField {
             field: "retention time",
             ..
         })
     ));
     assert!(matches!(
-        MascotGenericFormatMetadata::new(1, 2, Some(10.0), 1, Some(String::new())),
+        MascotGenericFormatMetadata::new(Some(1), 2, Some(10.0), 1, Some(String::new())),
         Err(MascotError::EmptyFilename)
     ));
 }
@@ -615,7 +615,7 @@ fn test_precision_generic_can_store_f32_spectra() -> Result<()> {
     assert_eq!(spectrum_ref.mz_nth(0).to_bits(), 100.0_f32.to_bits());
     assert_eq!(spectrum_ref.intensity_nth(1).to_bits(), 3.0_f32.to_bits());
 
-    let metadata = MascotGenericFormatMetadata::new(1, 2, Some(10.0), 1, None)?;
+    let metadata = MascotGenericFormatMetadata::new(Some(1), 2, Some(10.0), 1, None)?;
     let record: MascotGenericFormat<usize, f32> =
         MascotGenericFormat::new(metadata, 500.0, vec![100.0, 200.0], vec![2.0, 3.0])?;
     let spectrum: GenericSpectrum<f32> = record.into();
@@ -650,7 +650,7 @@ fn test_memory_footprint_is_available_from_prelude() -> Result<()> {
     assert!(size >= std::mem::size_of_val(&mgf));
     assert!(capacity_size >= size);
     let metadata_without_smiles =
-        MascotGenericFormatMetadata::new(1_usize, 2, Some(10.0), 1, None)?;
+        MascotGenericFormatMetadata::new(Some(1_usize), 2, Some(10.0), 1, None)?;
     assert!(metadata_size >= std::mem::size_of_val(mgf[0].metadata()));
     assert_eq!(
         metadata_size,
@@ -698,11 +698,38 @@ fn test_gnps_library_records_parse_annotation_metadata() -> Result<()> {
     let mgf: MGFVec<usize> = MGFVec::try_from_iter(lines)?;
 
     assert_eq!(mgf.len(), 1);
-    assert_eq!(mgf[0].feature_id(), 1);
+    assert_eq!(mgf[0].feature_id(), Some(1));
     assert_eq!(mgf[0].metadata().retention_time(), None);
     assert!(mgf[0].metadata().smiles().is_none());
     assert_eq!(mgf[0].level(), 2);
     assert_eq!(mgf[0].len(), 3);
+
+    Ok(())
+}
+
+#[test]
+fn test_records_without_feature_id_are_accepted() -> Result<()> {
+    let lines = [
+        "BEGIN IONS",
+        "PEPMASS=370.165",
+        "CHARGE=1",
+        "MSLEVEL=2",
+        "SOURCE_INSTRUMENT=ESI-Qtof",
+        "FILENAME=20250403-FIMS-Positive-CE35CES15-Allocryptopine.mzML",
+        "SMILES=CN1CCC2C=C3C(OCO3)=CC=2C(CC2=CC=C(C(OC)=C2C1)OC)=O",
+        "SPECTRUMID=CCMSLIB00013748121",
+        "SCANS=-1",
+        "106.063454 3.229225",
+        "109.028343 3.069424",
+        "END IONS",
+    ];
+
+    let mgf: MGFVec<usize> = MGFVec::try_from_iter(lines)?;
+
+    assert_eq!(mgf.len(), 1);
+    assert_eq!(mgf[0].feature_id(), None);
+    assert_eq!(mgf[0].metadata().feature_id(), None);
+    assert_eq!(mgf[0].len(), 2);
 
     Ok(())
 }

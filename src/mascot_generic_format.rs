@@ -7,7 +7,11 @@ use core::{
     str::FromStr,
 };
 #[cfg(feature = "std")]
-use std::{io::BufRead, path::Path};
+use std::{
+    fs::File,
+    io::{BufRead, BufReader},
+    path::Path,
+};
 
 use mass_spectrometry::prelude::{GenericSpectrum, Spectra, Spectrum, SpectrumFloat, SpectrumMut};
 
@@ -218,6 +222,9 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
     /// * If the file at the provided path cannot be read.
     /// * If the file at the provided path cannot be parsed.
     ///
+    /// Files ending in `.zst`, `.zstd`, `.gz`, or `.gzip` are decompressed
+    /// while they are read.
+    ///
     /// # Examples
     ///
     /// An example of a document that contains one fragmentation spectrum per
@@ -258,11 +265,43 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
         I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
     {
         let path = path.as_ref();
-        let file = std::fs::File::open(path).map_err(|source| MascotError::Io {
+        Self::from_reader(Self::reader_from_path(path)?)
+    }
+
+    #[cfg(feature = "std")]
+    fn reader_from_path(path: &Path) -> Result<Box<dyn BufRead>> {
+        let file = File::open(path).map_err(|source| MascotError::Io {
             path: path.display().to_string(),
             source,
         })?;
-        Self::from_reader(std::io::BufReader::new(file))
+
+        if Self::has_extension(path, &["zst", "zstd"]) {
+            let decoder =
+                zstd::stream::read::Decoder::new(file).map_err(|source| MascotError::Io {
+                    path: path.display().to_string(),
+                    source,
+                })?;
+            return Ok(Box::new(BufReader::new(decoder)));
+        }
+
+        if Self::has_extension(path, &["gz", "gzip"]) {
+            return Ok(Box::new(BufReader::new(flate2::read::MultiGzDecoder::new(
+                file,
+            ))));
+        }
+
+        Ok(Box::new(BufReader::new(file)))
+    }
+
+    #[cfg(feature = "std")]
+    fn has_extension(path: &Path, expected_extensions: &[&str]) -> bool {
+        path.extension()
+            .and_then(|extension| extension.to_str())
+            .is_some_and(|extension| {
+                expected_extensions
+                    .iter()
+                    .any(|expected_extension| extension.eq_ignore_ascii_case(expected_extension))
+            })
     }
 
     /// Creates a new vector of MGF objects from a buffered line reader.
@@ -416,6 +455,14 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
         }
 
         Ok((mascot_generic_formats, skipped_records))
+    }
+
+    #[cfg(feature = "std")]
+    pub(crate) fn from_path_skipping_invalid_records(path: &Path) -> Result<(Self, usize)>
+    where
+        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
+    {
+        Self::from_reader_skipping_invalid_records(Self::reader_from_path(path)?)
     }
 
     /// Returns the number of MGF records in the collection.

@@ -11,6 +11,8 @@ Parsing utilities for Mascot Generic Format (MGF) spectra. Algorithmic work is d
 Default features enable `std` and `mem_dbg`. Disabling defaults keeps the
 string and iterator parser APIs available for `no_std` targets with `alloc`.
 File IO, GNPS downloading/loading, and progress reporting require `std`.
+Path-based loading supports uncompressed MGF plus `.zst`, `.zstd`, `.gz`, and
+`.gzip` files.
 
 ## Parsing Documents
 
@@ -50,7 +52,8 @@ assert_eq!(spectra[1].precursor_mz().to_bits(), 600.0_f64.to_bits());
 # }
 ```
 
-Files can be parsed directly from a path.
+Files can be parsed directly from a path, including compressed `.mgf.zst` and
+`.mgf.gz` files.
 
 ```rust
 # #[cfg(feature = "std")]

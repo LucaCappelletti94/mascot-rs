@@ -1,5 +1,5 @@
 use core::marker::PhantomData;
-use std::io::{BufReader, BufWriter, Read, Write};
+use std::io::{BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
 use indicatif::ProgressBar;
@@ -223,11 +223,7 @@ impl<P: SpectrumFloat> GNPSBuilder<P> {
     }
 
     fn load_path(path: &Path) -> Result<(MGFVec<usize, P>, usize)> {
-        let file = std::fs::File::open(path).map_err(|source| MascotError::Io {
-            path: path.display().to_string(),
-            source,
-        })?;
-        MGFVec::<usize, P>::from_reader_skipping_invalid_records(BufReader::new(file))
+        MGFVec::<usize, P>::from_path_skipping_invalid_records(path)
     }
 }
 

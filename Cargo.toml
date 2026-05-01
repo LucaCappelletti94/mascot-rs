@@ -15,11 +15,13 @@ categories = [
 
 [dependencies]
 console = { version = "=0.15.8", optional = true }
+flate2 = { version = "1.0", default-features = false, features = ["rust_backend"], optional = true }
 indicatif = { version = "0.17", default-features = false, optional = true }
 mass_spectrometry = { git = "https://github.com/earth-metabolome-initiative/mass-spectrometry-traits", rev = "a277e6e0b6becb88312d895ce61ee45d4c4a1378", default-features = false }
 mem_dbg = { version = "0.4", default-features = false, features = ["derive", "half"], optional = true }
 thiserror = { version = "2.0", default-features = false }
 ureq = { version = "3.3", optional = true }
+zstd = { version = "0.13", default-features = false, optional = true }
 
 [dev-dependencies]
 pollster = "0.4"
@@ -28,8 +30,10 @@ pollster = "0.4"
 default = ["std", "mem_dbg"]
 std = [
     "dep:console",
+    "dep:flate2",
     "dep:indicatif",
     "dep:ureq",
+    "dep:zstd",
     "mass_spectrometry/std",
     "mem_dbg?/std",
     "thiserror/std",

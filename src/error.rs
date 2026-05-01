@@ -1,13 +1,17 @@
+use alloc::boxed::Box;
+use alloc::string::String;
+
 use mass_spectrometry::prelude::GenericSpectrumMutationError;
 use thiserror::Error;
 
 /// Crate-wide result type.
-pub type Result<T> = std::result::Result<T, MascotError>;
+pub type Result<T> = core::result::Result<T, MascotError>;
 
 /// Errors returned while parsing and validating MGF documents.
 #[derive(Debug, Error)]
 pub enum MascotError {
     /// A source file could not be read.
+    #[cfg(feature = "std")]
     #[error("could not read MGF file \"{path}\": {source}")]
     Io {
         /// Path that could not be read.
@@ -17,6 +21,7 @@ pub enum MascotError {
         source: std::io::Error,
     },
     /// A line-oriented input stream could not be read.
+    #[cfg(feature = "std")]
     #[error("could not read MGF input stream: {source}")]
     InputIo {
         /// Underlying I/O error.
@@ -35,6 +40,7 @@ pub enum MascotError {
         source: Box<Self>,
     },
     /// A remote MGF library could not be downloaded.
+    #[cfg(feature = "std")]
     #[error("could not download MGF library from \"{url}\": {source}")]
     Download {
         /// URL that could not be downloaded.

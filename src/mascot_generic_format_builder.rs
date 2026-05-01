@@ -1,4 +1,5 @@
-use std::{fmt::Debug, marker::PhantomData, ops::Add, str::FromStr};
+use alloc::{string::ToString, vec::Vec};
+use core::{fmt::Debug, marker::PhantomData, ops::Add, str::FromStr};
 
 use crate::mascot_generic_format::MascotGenericFormat;
 use crate::mascot_generic_format_metadata_builder::MascotGenericFormatMetadataBuilder;

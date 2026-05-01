@@ -1,5 +1,6 @@
+use alloc::string::{String, ToString};
 use core::ops::Add;
-use std::{fmt::Debug, str::FromStr};
+use core::{fmt::Debug, str::FromStr};
 
 use crate::prelude::*;
 

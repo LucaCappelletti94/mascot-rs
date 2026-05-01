@@ -6,6 +6,12 @@
 
 Parsing utilities for Mascot Generic Format (MGF) spectra. Algorithmic work is delegated to the shared [`mass_spectrometry`](https://github.com/earth-metabolome-initiative/mass-spectrometry-traits) traits and structs exposed through the prelude.
 
+## Feature Flags
+
+Default features enable `std` and `mem_dbg`. Disabling defaults keeps the
+string and iterator parser APIs available for `no_std` targets with `alloc`.
+File IO, GNPS downloading/loading, and progress reporting require `std`.
+
 ## Parsing Documents
 
 Use [`MGFVec`] when parsing a full MGF document.
@@ -47,15 +53,18 @@ assert_eq!(spectra[1].precursor_mz().to_bits(), 600.0_f64.to_bits());
 Files can be parsed directly from a path.
 
 ```rust
+# #[cfg(feature = "std")]
+# fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 use mascot_rs::prelude::*;
 
-# fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 let spectra: MGFVec<usize> =
     MGFVec::from_path("tests/data/20220513_PMA_DBGI_01_04_003.mgf")?;
 
 assert_eq!(spectra.len(), 74);
 # Ok(())
 # }
+# #[cfg(not(feature = "std"))]
+# fn main() {}
 ```
 
 ## Parsing One Record
@@ -127,9 +136,10 @@ below writes a small local `ALL_GNPS.mgf` file first, so the builder loads an
 existing file and does not perform a network request.
 
 ```rust
+# #[cfg(feature = "std")]
+# fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 use mascot_rs::prelude::*;
 
-# fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 let target_directory =
     std::env::temp_dir().join(format!("mascot-rs-readme-{}", std::process::id()));
 let _ = std::fs::remove_dir_all(&target_directory);
@@ -166,6 +176,8 @@ assert_eq!(load.spectra().len(), 1);
 assert_eq!(load.skipped_records(), 1);
 # Ok(())
 # }
+# #[cfg(not(feature = "std"))]
+# fn main() {}
 ```
 
 [`MGFVec`]: crate::mascot_generic_format::MGFVec

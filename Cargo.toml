@@ -14,15 +14,35 @@ categories = [
 ]
 
 [dependencies]
-console = "=0.15.8"
-indicatif = { version = "0.17", default-features = false }
-mass_spectrometry = { git = "https://github.com/earth-metabolome-initiative/mass-spectrometry-traits", rev = "a277e6e0b6becb88312d895ce61ee45d4c4a1378", features = ["mem_dbg"] }
-mem_dbg = "0.4"
-thiserror = "2.0"
-ureq = "3.3"
+console = { version = "=0.15.8", optional = true }
+indicatif = { version = "0.17", default-features = false, optional = true }
+mass_spectrometry = { git = "https://github.com/earth-metabolome-initiative/mass-spectrometry-traits", rev = "a277e6e0b6becb88312d895ce61ee45d4c4a1378", default-features = false }
+mem_dbg = { version = "0.4", default-features = false, features = ["derive", "half"], optional = true }
+thiserror = { version = "2.0", default-features = false }
+ureq = { version = "3.3", optional = true }
 
 [dev-dependencies]
 pollster = "0.4"
+
+[features]
+default = ["std", "mem_dbg"]
+std = [
+    "dep:console",
+    "dep:indicatif",
+    "dep:ureq",
+    "mass_spectrometry/std",
+    "mem_dbg?/std",
+    "thiserror/std",
+]
+mem_size = [
+    "dep:mem_dbg",
+    "mass_spectrometry/mem_size",
+]
+mem_dbg = [
+    "std",
+    "mem_size",
+    "mass_spectrometry/mem_dbg",
+]
 
 [lints.rust]
 missing_docs = "deny"

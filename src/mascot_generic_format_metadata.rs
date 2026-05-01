@@ -1,7 +1,11 @@
+use alloc::string::{String, ToString};
+
 use crate::prelude::*;
 
 /// Metadata for one Mascot Generic Format ion block.
-#[derive(Debug, Clone, mem_dbg::MemSize, mem_dbg::MemDbg)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
+#[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
 pub struct MascotGenericFormatMetadata<I> {
     feature_id: I,
     level: u8,

@@ -1,5 +1,5 @@
+use core::marker::PhantomData;
 use std::io::{BufReader, BufWriter, Read, Write};
-use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 
 use indicatif::ProgressBar;
@@ -14,8 +14,10 @@ pub const GNPS_ALL_MGF_URL: &str = "https://external.gnps2.org/gnpslibrary/ALL_G
 const GNPS_ALL_MGF_FILE_NAME: &str = "ALL_GNPS.mgf";
 
 /// Verbosity used while downloading GNPS data.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, mem_dbg::MemSize, mem_dbg::MemDbg)]
-#[mem_size(flat)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
+#[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
+#[cfg_attr(feature = "mem_size", mem_size(flat))]
 pub enum GNPSVerbosity {
     /// Do not emit progress information.
     #[default]
@@ -25,13 +27,17 @@ pub enum GNPSVerbosity {
 }
 
 /// Builder for downloading and loading the GNPS MGF library.
-#[derive(Debug, Clone, mem_dbg::MemSize, mem_dbg::MemDbg)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
+#[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
 pub struct GNPSBuilder<P: SpectrumFloat = f64> {
     config: GNPSBuilderConfig,
     precision: PhantomData<P>,
 }
 
-#[derive(Debug, Clone, mem_dbg::MemSize, mem_dbg::MemDbg)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
+#[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
 struct GNPSBuilderConfig {
     url: String,
     target_directory: PathBuf,
@@ -226,7 +232,9 @@ impl<P: SpectrumFloat> GNPSBuilder<P> {
 }
 
 /// Result of loading the GNPS MGF library.
-#[derive(Debug, mem_dbg::MemSize, mem_dbg::MemDbg)]
+#[derive(Debug)]
+#[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
+#[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
 pub struct GNPSLoad<P: SpectrumFloat = f64> {
     spectra: MGFVec<usize, P>,
     skipped_records: usize,

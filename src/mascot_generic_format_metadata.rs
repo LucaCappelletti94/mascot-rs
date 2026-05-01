@@ -1,12 +1,11 @@
 use crate::prelude::*;
 
 /// Metadata for one Mascot Generic Format ion block.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, mem_dbg::MemSize, mem_dbg::MemDbg)]
 pub struct MascotGenericFormatMetadata<I> {
     feature_id: I,
     level: u8,
-    parent_ion_mass: f64,
-    retention_time: f64,
+    retention_time: Option<f64>,
     charge: i8,
     filename: Option<String>,
 }
@@ -17,8 +16,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// # Arguments
     /// * `feature_id` - The feature ID of the metadata.
     /// * `level` - The MS fragmentation level.
-    /// * `parent_ion_mass` - The parent ion mass of the metadata.
-    /// * `retention_time` - The retention time of the metadata.
+    /// * `retention_time` - The retention time of the metadata, if present.
     /// * `charge` - The precursor charge of the metadata.
     /// * `filename` - The filename of the metadata.
     ///
@@ -27,9 +25,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     ///
     /// # Errors
     /// * If `level` is zero.
-    /// * If `parent_ion_mass` is not finite and strictly positive.
-    /// * If `retention_time` is not finite and strictly positive.
-    /// * If `charge` is zero.
+    /// * If `retention_time` is present but not finite and strictly positive.
     /// * If `filename` is empty.
     ///
     /// # Examples
@@ -39,15 +35,13 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     ///
     /// let feature_id = 1;
     /// let level = 2;
-    /// let parent_ion_mass = 381.0795;
-    /// let retention_time = 37.083;
+    /// let retention_time = Some(37.083);
     /// let charge = 1;
     /// let filename = Some("20220513_PMA_DBGI_01_04_003.mzML".to_string());
     ///
     /// let mascot_generic_format_metadata: MascotGenericFormatMetadata<usize> = MascotGenericFormatMetadata::new(
     ///     feature_id,
     ///     level,
-    ///     parent_ion_mass,
     ///     retention_time,
     ///     charge,
     ///     filename.clone(),
@@ -55,7 +49,6 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     ///
     /// assert_eq!(mascot_generic_format_metadata.feature_id(), feature_id);
     /// assert_eq!(mascot_generic_format_metadata.level(), level);
-    /// assert_eq!(mascot_generic_format_metadata.parent_ion_mass(), parent_ion_mass);
     /// assert_eq!(mascot_generic_format_metadata.retention_time(), retention_time);
     /// assert_eq!(mascot_generic_format_metadata.charge(), charge);
     /// assert_eq!(mascot_generic_format_metadata.filename(), filename.as_deref());
@@ -64,7 +57,6 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     ///     MascotGenericFormatMetadata::new(
     ///         feature_id,
     ///         0,
-    ///         parent_ion_mass,
     ///         retention_time,
     ///         charge,
     ///         filename.clone(),
@@ -75,8 +67,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     ///     MascotGenericFormatMetadata::new(
     ///         feature_id,
     ///         level,
-    ///         -1.0,
-    ///         retention_time,
+    ///         Some(-1.0),
     ///         charge,
     ///         filename.clone(),
     ///     ).is_err()
@@ -86,29 +77,6 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     ///     MascotGenericFormatMetadata::new(
     ///         feature_id,
     ///         level,
-    ///         parent_ion_mass,
-    ///         -1.0,
-    ///         charge,
-    ///         filename.clone(),
-    ///     ).is_err()
-    /// );
-    ///
-    /// assert!(
-    ///     MascotGenericFormatMetadata::new(
-    ///         feature_id,
-    ///         level,
-    ///         parent_ion_mass,
-    ///         retention_time,
-    ///         0,
-    ///         filename.clone(),
-    ///     ).is_err()
-    /// );
-    ///
-    /// assert!(
-    ///     MascotGenericFormatMetadata::new(
-    ///         feature_id,
-    ///         level,
-    ///         parent_ion_mass,
     ///         retention_time,
     ///         charge,
     ///         Some("".to_string()),
@@ -120,8 +88,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     pub fn new(
         feature_id: I,
         level: u8,
-        parent_ion_mass: f64,
-        retention_time: f64,
+        retention_time: Option<f64>,
         charge: i8,
         filename: Option<String>,
     ) -> Result<Self> {
@@ -132,36 +99,20 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
             });
         }
 
-        if charge == 0 {
-            return Err(MascotError::ZeroCharge);
-        }
-
-        if !parent_ion_mass.is_finite() || parent_ion_mass <= 0.0 {
-            return if parent_ion_mass.is_finite() {
-                Err(MascotError::NonPositiveField {
-                    field: "parent ion mass",
-                    line: parent_ion_mass.to_string(),
-                })
-            } else {
-                Err(MascotError::NonFiniteField {
-                    field: "parent ion mass",
-                    line: parent_ion_mass.to_string(),
-                })
-            };
-        }
-
-        if !retention_time.is_finite() || retention_time <= 0.0 {
-            return if retention_time.is_finite() {
-                Err(MascotError::NonPositiveField {
-                    field: "retention time",
-                    line: retention_time.to_string(),
-                })
-            } else {
-                Err(MascotError::NonFiniteField {
-                    field: "retention time",
-                    line: retention_time.to_string(),
-                })
-            };
+        if let Some(retention_time) = retention_time {
+            if !retention_time.is_finite() || retention_time <= 0.0 {
+                return if retention_time.is_finite() {
+                    Err(MascotError::NonPositiveField {
+                        field: "retention time",
+                        line: retention_time.to_string(),
+                    })
+                } else {
+                    Err(MascotError::NonFiniteField {
+                        field: "retention time",
+                        line: retention_time.to_string(),
+                    })
+                };
+            }
         }
 
         if let Some(filename) = &filename {
@@ -173,7 +124,6 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
         Ok(Self {
             feature_id,
             level,
-            parent_ion_mass,
             retention_time,
             charge,
             filename,
@@ -190,13 +140,8 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
         self.level
     }
 
-    /// Returns the parent ion mass of the metadata.
-    pub const fn parent_ion_mass(&self) -> f64 {
-        self.parent_ion_mass
-    }
-
     /// Returns the retention time of the metadata.
-    pub const fn retention_time(&self) -> f64 {
+    pub const fn retention_time(&self) -> Option<f64> {
         self.retention_time
     }
 

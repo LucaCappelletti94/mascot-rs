@@ -7,6 +7,9 @@ fn test_parse_i8_charge_values() -> Result<()> {
     for (line, expected_charge) in [
         ("CHARGE=2", 2),
         ("CHARGE=5+", 5),
+        ("CHARGE=0", 0),
+        ("CHARGE=0+", 0),
+        ("CHARGE=0-", 0),
         ("CHARGE=-1", -1),
         ("CHARGE=2-", -2),
     ] {
@@ -27,27 +30,4 @@ fn test_parse_i8_charge_values() -> Result<()> {
     }
 
     Ok(())
-}
-
-#[test]
-fn test_reject_zero_charge() {
-    let lines = [
-        "FEATURE_ID=1",
-        "PEPMASS=381.0795",
-        "SCANS=1",
-        "CHARGE=0",
-        "RTINSECONDS=37.083",
-        "BEGIN IONS",
-        "MSLEVEL=2",
-        "60.5425 2.4E5",
-        "END IONS",
-    ];
-
-    assert!(matches!(
-        MGFVec::<usize>::try_from_iter(lines),
-        Err(MascotError::InvalidCharge {
-            reason: "charge is zero",
-            ..
-        })
-    ));
 }

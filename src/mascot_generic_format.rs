@@ -1,10 +1,13 @@
 use std::fmt::Debug;
+use std::io::BufRead;
 use std::ops::{Add, Index};
+use std::path::Path;
 use std::str::FromStr;
 
-use mass_spectrometry::prelude::{GenericSpectrum, Spectra, Spectrum, SpectrumMut};
+use mass_spectrometry::prelude::{GenericSpectrum, Spectra, Spectrum, SpectrumFloat, SpectrumMut};
 
 use crate::error::{MascotError, Result};
+use crate::gnps::GNPSBuilder;
 use crate::mascot_generic_format_builder::MascotGenericFormatBuilder;
 use crate::mascot_generic_format_metadata::MascotGenericFormatMetadata;
 
@@ -12,21 +15,21 @@ use crate::mascot_generic_format_metadata::MascotGenericFormatMetadata;
 ///
 /// When used as a [`Spectrum`], the record exposes the peaks from this MGF ion
 /// block.
-#[derive(Debug)]
-pub struct MascotGenericFormat<I> {
+#[derive(Debug, mem_dbg::MemSize, mem_dbg::MemDbg)]
+pub struct MascotGenericFormat<I, P: SpectrumFloat = f64> {
     metadata: MascotGenericFormatMetadata<I>,
-    spectrum: GenericSpectrum,
+    spectrum: GenericSpectrum<P>,
 }
 
-impl<I: Copy> MascotGenericFormat<I> {
+impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
     /// Creates a new [`MascotGenericFormat`].
     ///
     /// # Errors
     /// Returns an error if no peak data is provided, if the peak values are
-    /// invalid, or if first-level data is incompatible with the metadata parent
-    /// ion mass.
+    /// invalid, or if first-level data is incompatible with the precursor m/z.
     pub fn new(
         metadata: MascotGenericFormatMetadata<I>,
+        precursor_mz: f64,
         mass_divided_by_charge_ratios: Vec<f64>,
         fragment_intensities: Vec<f64>,
     ) -> Result<Self> {
@@ -42,8 +45,7 @@ impl<I: Copy> MascotGenericFormat<I> {
         }
 
         let peak_capacity = mass_divided_by_charge_ratios.len();
-        let mut spectrum =
-            GenericSpectrum::try_with_capacity(metadata.parent_ion_mass(), peak_capacity)?;
+        let mut spectrum = GenericSpectrum::<P>::try_with_capacity(precursor_mz, peak_capacity)?;
 
         let mut peaks = mass_divided_by_charge_ratios
             .into_iter()
@@ -66,12 +68,12 @@ impl<I: Copy> MascotGenericFormat<I> {
             spectrum.add_peak(mz, intensity)?;
         }
 
-        if metadata.level() == 1
-            && metadata.parent_ion_mass().to_bits() != spectrum.mz_nth(0).to_bits()
-        {
-            return Err(MascotError::FirstLevelParentIonMassMismatch {
-                parent_ion_mass: metadata.parent_ion_mass(),
-                first_level_min_mz: spectrum.mz_nth(0),
+        let stored_precursor_mz = spectrum.precursor_mz().to_f64();
+        let first_level_min_mz = spectrum.mz_nth(0).to_f64();
+        if metadata.level() == 1 && stored_precursor_mz.to_bits() != first_level_min_mz.to_bits() {
+            return Err(MascotError::FirstLevelPrecursorMzMismatch {
+                precursor_mz: stored_precursor_mz,
+                first_level_min_mz,
             });
         }
 
@@ -100,29 +102,52 @@ impl<I: Copy> MascotGenericFormat<I> {
     }
 }
 
-impl<I> AsRef<GenericSpectrum> for MascotGenericFormat<I> {
-    fn as_ref(&self) -> &GenericSpectrum {
+impl<I, P: SpectrumFloat> AsRef<GenericSpectrum<P>> for MascotGenericFormat<I, P> {
+    fn as_ref(&self) -> &GenericSpectrum<P> {
         &self.spectrum
     }
 }
 
-impl<I> From<MascotGenericFormat<I>> for GenericSpectrum {
-    fn from(value: MascotGenericFormat<I>) -> Self {
+impl<I, P: SpectrumFloat> From<MascotGenericFormat<I, P>> for GenericSpectrum<P> {
+    fn from(value: MascotGenericFormat<I, P>) -> Self {
         value.spectrum
     }
 }
 
-impl<I: Copy> Spectrum for MascotGenericFormat<I> {
+impl<I, P> FromStr for MascotGenericFormat<I, P>
+where
+    I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
+    P: SpectrumFloat,
+{
+    type Err = MascotError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let records = MGFVec::<I, P>::from_str(s)?;
+        let found = records.mascot_generic_formats.len();
+        if found != 1 {
+            return Err(MascotError::SingleRecordExpected { found });
+        }
+
+        records
+            .mascot_generic_formats
+            .into_iter()
+            .next()
+            .ok_or(MascotError::SingleRecordExpected { found })
+    }
+}
+
+impl<I: Copy, P: SpectrumFloat> Spectrum for MascotGenericFormat<I, P> {
+    type Precision = P;
     type SortedIntensitiesIter<'a>
-        = <GenericSpectrum as Spectrum>::SortedIntensitiesIter<'a>
+        = <GenericSpectrum<P> as Spectrum>::SortedIntensitiesIter<'a>
     where
         Self: 'a;
     type SortedMzIter<'a>
-        = <GenericSpectrum as Spectrum>::SortedMzIter<'a>
+        = <GenericSpectrum<P> as Spectrum>::SortedMzIter<'a>
     where
         Self: 'a;
     type SortedPeaksIter<'a>
-        = <GenericSpectrum as Spectrum>::SortedPeaksIter<'a>
+        = <GenericSpectrum<P> as Spectrum>::SortedPeaksIter<'a>
     where
         Self: 'a;
 
@@ -134,7 +159,7 @@ impl<I: Copy> Spectrum for MascotGenericFormat<I> {
         self.spectrum.intensities()
     }
 
-    fn intensity_nth(&self, n: usize) -> f64 {
+    fn intensity_nth(&self, n: usize) -> Self::Precision {
         self.spectrum.intensity_nth(n)
     }
 
@@ -146,7 +171,7 @@ impl<I: Copy> Spectrum for MascotGenericFormat<I> {
         self.spectrum.mz_from(index)
     }
 
-    fn mz_nth(&self, n: usize) -> f64 {
+    fn mz_nth(&self, n: usize) -> Self::Precision {
         self.spectrum.mz_nth(n)
     }
 
@@ -154,23 +179,23 @@ impl<I: Copy> Spectrum for MascotGenericFormat<I> {
         self.spectrum.peaks()
     }
 
-    fn peak_nth(&self, n: usize) -> (f64, f64) {
+    fn peak_nth(&self, n: usize) -> (Self::Precision, Self::Precision) {
         self.spectrum.peak_nth(n)
     }
 
-    fn precursor_mz(&self) -> f64 {
-        self.metadata.parent_ion_mass()
+    fn precursor_mz(&self) -> Self::Precision {
+        self.spectrum.precursor_mz()
     }
 }
 
 #[repr(transparent)]
 /// A collection of parsed [`MascotGenericFormat`] records.
-#[derive(Debug)]
-pub struct MGFVec<I> {
-    mascot_generic_formats: Vec<MascotGenericFormat<I>>,
+#[derive(Debug, mem_dbg::MemSize, mem_dbg::MemDbg)]
+pub struct MGFVec<I, P: SpectrumFloat = f64> {
+    mascot_generic_formats: Vec<MascotGenericFormat<I, P>>,
 }
 
-impl<I> MGFVec<I> {
+impl<I, P: SpectrumFloat> MGFVec<I, P> {
     /// Create a new vector of MGF objects from the file at the provided path.
     ///
     /// # Arguments
@@ -216,15 +241,74 @@ impl<I> MGFVec<I> {
     /// ```
     ///
     ///
-    pub fn from_path(path: &str) -> Result<Self>
+    pub fn from_path<PathLike>(path: PathLike) -> Result<Self>
     where
+        PathLike: AsRef<Path>,
         I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
     {
-        let file = std::fs::read_to_string(path).map_err(|source| MascotError::Io {
-            path: path.to_string(),
+        let path = path.as_ref();
+        let file = std::fs::File::open(path).map_err(|source| MascotError::Io {
+            path: path.display().to_string(),
             source,
         })?;
-        Self::try_from_iter(file.lines().filter(|line| !line.is_empty()))
+        Self::from_reader(std::io::BufReader::new(file))
+    }
+
+    /// Creates a new vector of MGF objects from a buffered line reader.
+    ///
+    /// # Errors
+    /// Returns an error if the reader cannot be read, if any input line cannot
+    /// be parsed, or if any MGF section cannot be built.
+    pub fn from_reader<R>(mut reader: R) -> Result<Self>
+    where
+        R: BufRead,
+        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
+    {
+        let mut mascot_generic_formats = Self {
+            mascot_generic_formats: Vec::new(),
+        };
+        let mut mascot_generic_format_builder = MascotGenericFormatBuilder::<I, P>::default();
+        let mut line = String::new();
+        let mut line_number = 0;
+
+        while reader
+            .read_line(&mut line)
+            .map_err(|source| MascotError::InputIo { source })?
+            != 0
+        {
+            line_number += 1;
+            let trimmed_line = line.trim_end_matches(['\r', '\n']);
+            if !trimmed_line.is_empty() {
+                mascot_generic_format_builder
+                    .digest_line(trimmed_line)
+                    .map_err(|source| MascotError::InputLine {
+                        line_number,
+                        line: trimmed_line.to_string(),
+                        source: Box::new(source),
+                    })?;
+                if mascot_generic_format_builder.can_build() {
+                    mascot_generic_formats.mascot_generic_formats.push(
+                        mascot_generic_format_builder.build().map_err(|source| {
+                            MascotError::InputLine {
+                                line_number,
+                                line: trimmed_line.to_string(),
+                                source: Box::new(source),
+                            }
+                        })?,
+                    );
+                    mascot_generic_format_builder = MascotGenericFormatBuilder::<I, P>::default();
+                } else if mascot_generic_format_builder.can_skip_empty_section() {
+                    return Err(MascotError::InputLine {
+                        line_number,
+                        line: trimmed_line.to_string(),
+                        source: Box::new(MascotError::EmptyPeakVectors),
+                    });
+                }
+            }
+            line.clear();
+        }
+
+        Ok(mascot_generic_formats)
     }
 
     /// Creates a new vector of MGF objects from an iterator over document lines.
@@ -240,7 +324,7 @@ impl<I> MGFVec<I> {
         let mut mascot_generic_formats = Self {
             mascot_generic_formats: Vec::new(),
         };
-        let mut mascot_generic_format_builder = MascotGenericFormatBuilder::default();
+        let mut mascot_generic_format_builder = MascotGenericFormatBuilder::<I, P>::default();
 
         for line in iter {
             mascot_generic_format_builder.digest_line(line)?;
@@ -248,11 +332,77 @@ impl<I> MGFVec<I> {
                 mascot_generic_formats
                     .mascot_generic_formats
                     .push(mascot_generic_format_builder.build()?);
-                mascot_generic_format_builder = MascotGenericFormatBuilder::default();
+                mascot_generic_format_builder = MascotGenericFormatBuilder::<I, P>::default();
+            } else if mascot_generic_format_builder.can_skip_empty_section() {
+                return Err(MascotError::EmptyPeakVectors);
             }
         }
 
         Ok(mascot_generic_formats)
+    }
+
+    pub(crate) fn from_reader_skipping_invalid_records<R>(mut reader: R) -> Result<(Self, usize)>
+    where
+        R: BufRead,
+        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
+    {
+        let mut mascot_generic_formats = Self::default();
+        let mut skipped_records = 0;
+        let mut block_lines: Vec<String> = Vec::new();
+        let mut line = String::new();
+        let mut section_open = false;
+
+        while reader
+            .read_line(&mut line)
+            .map_err(|source| MascotError::InputIo { source })?
+            != 0
+        {
+            let trimmed_line = line.trim_end_matches(['\r', '\n']);
+            if trimmed_line.is_empty() {
+                line.clear();
+                continue;
+            }
+
+            if trimmed_line == "BEGIN IONS" {
+                if section_open {
+                    skipped_records += 1;
+                    block_lines.clear();
+                }
+                section_open = true;
+                block_lines.push(trimmed_line.to_string());
+                line.clear();
+                continue;
+            }
+
+            if section_open {
+                block_lines.push(trimmed_line.to_string());
+                if trimmed_line == "END IONS" {
+                    match Self::try_from_iter(block_lines.iter().map(String::as_str)) {
+                        Ok(parsed) if parsed.is_empty() => {
+                            skipped_records += 1;
+                        }
+                        Ok(mut parsed) => {
+                            mascot_generic_formats
+                                .mascot_generic_formats
+                                .append(&mut parsed.mascot_generic_formats);
+                        }
+                        Err(_) => {
+                            skipped_records += 1;
+                        }
+                    }
+                    block_lines.clear();
+                    section_open = false;
+                }
+            }
+
+            line.clear();
+        }
+
+        if section_open {
+            skipped_records += 1;
+        }
+
+        Ok((mascot_generic_formats, skipped_records))
     }
 
     /// Returns the number of MGF records in the collection.
@@ -268,7 +418,15 @@ impl<I> MGFVec<I> {
     }
 }
 
-impl<I> Default for MGFVec<I> {
+impl<P: SpectrumFloat> MGFVec<usize, P> {
+    /// Returns a builder for the GNPS public MGF spectral library.
+    #[must_use]
+    pub fn gnps() -> GNPSBuilder<P> {
+        GNPSBuilder::default()
+    }
+}
+
+impl<I, P: SpectrumFloat> Default for MGFVec<I, P> {
     fn default() -> Self {
         Self {
             mascot_generic_formats: Vec::new(),
@@ -276,16 +434,28 @@ impl<I> Default for MGFVec<I> {
     }
 }
 
-impl<I> AsRef<[MascotGenericFormat<I>]> for MGFVec<I> {
-    fn as_ref(&self) -> &[MascotGenericFormat<I>] {
+impl<I, P> FromStr for MGFVec<I, P>
+where
+    I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
+    P: SpectrumFloat,
+{
+    type Err = MascotError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Self::from_reader(std::io::Cursor::new(s.as_bytes()))
+    }
+}
+
+impl<I, P: SpectrumFloat> AsRef<[MascotGenericFormat<I, P>]> for MGFVec<I, P> {
+    fn as_ref(&self) -> &[MascotGenericFormat<I, P>] {
         self.mascot_generic_formats.as_slice()
     }
 }
 
-impl<I: Copy> Spectra for MGFVec<I> {
-    type Spectrum = MascotGenericFormat<I>;
+impl<I: Copy, P: SpectrumFloat> Spectra for MGFVec<I, P> {
+    type Spectrum = MascotGenericFormat<I, P>;
     type SpectraIter<'a>
-        = std::slice::Iter<'a, MascotGenericFormat<I>>
+        = std::slice::Iter<'a, MascotGenericFormat<I, P>>
     where
         Self: 'a;
 
@@ -298,8 +468,8 @@ impl<I: Copy> Spectra for MGFVec<I> {
     }
 }
 
-impl<I> Index<usize> for MGFVec<I> {
-    type Output = MascotGenericFormat<I>;
+impl<I, P: SpectrumFloat> Index<usize> for MGFVec<I, P> {
+    type Output = MascotGenericFormat<I, P>;
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.mascot_generic_formats[index]

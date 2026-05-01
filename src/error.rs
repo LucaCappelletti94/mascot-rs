@@ -16,6 +16,33 @@ pub enum MascotError {
         #[source]
         source: std::io::Error,
     },
+    /// A line-oriented input stream could not be read.
+    #[error("could not read MGF input stream: {source}")]
+    InputIo {
+        /// Underlying I/O error.
+        #[source]
+        source: std::io::Error,
+    },
+    /// A specific input line could not be parsed or built.
+    #[error("could not process MGF input line {line_number} \"{line}\": {source}")]
+    InputLine {
+        /// One-based input line number.
+        line_number: usize,
+        /// Original input line.
+        line: String,
+        /// Underlying parse or validation error.
+        #[source]
+        source: Box<Self>,
+    },
+    /// A remote MGF library could not be downloaded.
+    #[error("could not download MGF library from \"{url}\": {source}")]
+    Download {
+        /// URL that could not be downloaded.
+        url: String,
+        /// Underlying HTTP error.
+        #[source]
+        source: Box<ureq::Error>,
+    },
     /// A builder is missing a required field.
     #[error("could not build {builder}: {field} is missing")]
     MissingField {
@@ -43,6 +70,16 @@ pub enum MascotError {
     /// A line provided a zero or negative value for a strictly positive field.
     #[error("line \"{line}\" contains a zero or negative {field}; it must be strictly positive")]
     NonPositiveField {
+        /// Field being parsed.
+        field: &'static str,
+        /// Original input line.
+        line: String,
+    },
+    /// A line provided a value that cannot be stored in the requested precision.
+    #[error(
+        "line \"{line}\" contains a {field} that cannot be represented in the selected precision"
+    )]
+    UnrepresentablePrecisionField {
         /// Field being parsed.
         field: &'static str,
         /// Original input line.
@@ -78,9 +115,6 @@ pub enum MascotError {
         /// Reason the charge is invalid.
         reason: &'static str,
     },
-    /// Charge cannot be zero in validated metadata.
-    #[error("charge must be non-zero")]
-    ZeroCharge,
     /// `SCANS` does not match the feature id.
     #[error("SCANS is not -1 or equal to FEATURE_ID in line \"{line}\"")]
     ScanFeatureIdMismatch {
@@ -101,16 +135,22 @@ pub enum MascotError {
     /// A peak vector is empty.
     #[error("peak vectors must not be empty")]
     EmptyPeakVectors,
+    /// A single-record parser received zero or multiple records.
+    #[error("expected exactly one MGF record, found {found}")]
+    SingleRecordExpected {
+        /// Number of parsed records.
+        found: usize,
+    },
     /// Spectrum validation failed in the shared mass-spectrometry model.
     #[error("could not create spectrum: {0}")]
     SpectrumMutation(#[from] GenericSpectrumMutationError),
-    /// First-level data is incompatible with metadata.
+    /// First-level data is incompatible with the precursor m/z.
     #[error(
-        "first-level minimum m/z {first_level_min_mz:?} does not match metadata PEPMASS {parent_ion_mass:?}"
+        "first-level minimum m/z {first_level_min_mz:?} does not match precursor m/z {precursor_mz:?}"
     )]
-    FirstLevelParentIonMassMismatch {
-        /// Metadata parent ion mass.
-        parent_ion_mass: f64,
+    FirstLevelPrecursorMzMismatch {
+        /// Precursor m/z.
+        precursor_mz: f64,
         /// Minimum first-level m/z.
         first_level_min_mz: f64,
     },

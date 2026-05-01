@@ -5,10 +5,10 @@ use crate::prelude::*;
 
 /// Builder for metadata parsed from MGF header lines.
 #[derive(Debug, Clone, PartialEq)]
-pub struct MascotGenericFormatMetadataBuilder<I> {
+pub struct MascotGenericFormatMetadataBuilder<I, P: SpectrumFloat = f64> {
     feature_id: Option<I>,
     level: Option<u8>,
-    parent_ion_mass: Option<f64>,
+    precursor_mz: Option<P>,
     retention_time: Option<f64>,
     charge: Option<i8>,
     merged_scan_count: Option<I>,
@@ -19,12 +19,12 @@ pub struct MascotGenericFormatMetadataBuilder<I> {
     filename: Option<String>,
 }
 
-impl<I> Default for MascotGenericFormatMetadataBuilder<I> {
+impl<I, P: SpectrumFloat> Default for MascotGenericFormatMetadataBuilder<I, P> {
     fn default() -> Self {
         Self {
             feature_id: None,
             level: None,
-            parent_ion_mass: None,
+            precursor_mz: None,
             retention_time: None,
             charge: None,
             merged_scan_count: None,
@@ -37,7 +37,7 @@ impl<I> Default for MascotGenericFormatMetadataBuilder<I> {
     }
 }
 
-impl<I> MascotGenericFormatMetadataBuilder<I> {
+impl<I, P: SpectrumFloat> MascotGenericFormatMetadataBuilder<I, P> {
     const fn has_merged_scan_metadata(&self) -> bool {
         self.merged_scan_count.is_some()
             || self.retained_merged_scan_count.is_some()
@@ -55,8 +55,10 @@ impl<I> MascotGenericFormatMetadataBuilder<I> {
     }
 }
 
-impl<I: Copy + PartialEq + Eq + From<usize> + Debug + FromStr + Add<Output = I>>
-    MascotGenericFormatMetadataBuilder<I>
+impl<
+        I: Copy + PartialEq + Eq + From<usize> + Debug + FromStr + Add<Output = I>,
+        P: SpectrumFloat,
+    > MascotGenericFormatMetadataBuilder<I, P>
 {
     fn validate_merged_scan_metadata(&self) -> Result<()> {
         if !self.has_merged_scan_metadata() {
@@ -102,15 +104,15 @@ impl<I: Copy + PartialEq + Eq + From<usize> + Debug + FromStr + Add<Output = I>>
         Ok(())
     }
 
-    /// Builds parsed MGF metadata.
+    /// Builds parsed MGF metadata and the precursor m/z.
     ///
     /// # Errors
-    /// Returns an error if required metadata fields are missing or merged-scan
-    /// metadata is invalid.
-    pub(super) fn build(self) -> Result<MascotGenericFormatMetadata<I>> {
+    /// Returns an error if required fields are missing or merged-scan metadata
+    /// is invalid.
+    pub(super) fn build(self) -> Result<(MascotGenericFormatMetadata<I>, P)> {
         self.validate_merged_scan_metadata()?;
 
-        MascotGenericFormatMetadata::new(
+        let metadata = MascotGenericFormatMetadata::new(
             self.feature_id.ok_or(MascotError::MissingField {
                 builder: "MascotGenericFormatMetadata",
                 field: "feature_id",
@@ -119,24 +121,25 @@ impl<I: Copy + PartialEq + Eq + From<usize> + Debug + FromStr + Add<Output = I>>
                 builder: "MascotGenericFormatMetadata",
                 field: "level",
             })?,
-            self.parent_ion_mass.ok_or(MascotError::MissingField {
-                builder: "MascotGenericFormatMetadata",
-                field: "parent_ion_mass",
-            })?,
-            self.retention_time.ok_or(MascotError::MissingField {
-                builder: "MascotGenericFormatMetadata",
-                field: "retention_time",
-            })?,
+            self.retention_time,
             self.charge.ok_or(MascotError::MissingField {
                 builder: "MascotGenericFormatMetadata",
                 field: "charge",
             })?,
             self.filename,
-        )
+        )?;
+        let precursor_mz = self.precursor_mz.ok_or(MascotError::MissingField {
+            builder: "MascotGenericFormat",
+            field: "precursor_mz",
+        })?;
+
+        Ok((metadata, precursor_mz))
     }
 }
 
-impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>> MascotGenericFormatMetadataBuilder<I> {
+impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
+    MascotGenericFormatMetadataBuilder<I, P>
+{
     fn digest_feature_id_line(&mut self, stripped: &str, line: &str) -> Result<()> {
         let feature_id = stripped.parse::<I>().map_err(|_| MascotError::ParseField {
             field: "feature ID",
@@ -157,37 +160,50 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>> MascotGenericFormat
         }
     }
 
-    fn digest_parent_ion_mass_line(&mut self, stripped: &str, line: &str) -> Result<()> {
-        let parent_ion_mass = stripped
+    fn digest_precursor_mz_line(&mut self, stripped: &str, line: &str) -> Result<()> {
+        let precursor_mz = stripped
             .parse::<f64>()
             .map_err(|_| MascotError::ParseField {
-                field: "parent ion mass",
+                field: "precursor m/z",
                 line: line.to_string(),
             })?;
-        if !parent_ion_mass.is_finite() {
+        if !precursor_mz.is_finite() {
             return Err(MascotError::NonFiniteField {
-                field: "parent ion mass",
+                field: "precursor m/z",
                 line: line.to_string(),
             });
         }
-        if parent_ion_mass <= 0.0 {
+        if precursor_mz <= 0.0 {
             return Err(MascotError::NonPositiveField {
-                field: "parent ion mass",
+                field: "precursor m/z",
                 line: line.to_string(),
             });
         }
-        match self.parent_ion_mass {
-            Some(observed_parent_ion_mass)
-                if parent_ion_mass.to_bits() != observed_parent_ion_mass.to_bits() =>
+        let precursor_mz = P::from_f64(precursor_mz).ok_or_else(|| {
+            MascotError::UnrepresentablePrecisionField {
+                field: "precursor m/z",
+                line: line.to_string(),
+            }
+        })?;
+        if precursor_mz.to_f64() <= 0.0 {
+            return Err(MascotError::NonPositiveField {
+                field: "precursor m/z",
+                line: line.to_string(),
+            });
+        }
+
+        match self.precursor_mz {
+            Some(observed_precursor_mz)
+                if precursor_mz.to_f64().to_bits() != observed_precursor_mz.to_f64().to_bits() =>
             {
                 Err(MascotError::ConflictingField {
-                    field: "parent_ion_mass",
+                    field: "precursor_mz",
                     line: line.to_string(),
                 })
             }
             Some(_) => Ok(()),
             None => {
-                self.parent_ion_mass = Some(parent_ion_mass);
+                self.precursor_mz = Some(precursor_mz);
                 Ok(())
             }
         }
@@ -266,13 +282,6 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>> MascotGenericFormat
                 line: line.to_string(),
                 reason: "could not parse charge magnitude",
             })?;
-        if magnitude == 0 {
-            return Err(MascotError::InvalidCharge {
-                line: line.to_string(),
-                reason: "charge is zero",
-            });
-        }
-
         if sign.is_positive() {
             i8::try_from(magnitude).map_err(|_| MascotError::InvalidCharge {
                 line: line.to_string(),
@@ -310,13 +319,6 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>> MascotGenericFormat
                     reason: "could not parse charge",
                 })?
         };
-
-        if charge == 0 {
-            return Err(MascotError::InvalidCharge {
-                line: line.to_string(),
-                reason: "charge is zero",
-            });
-        }
 
         Ok(charge)
     }
@@ -506,7 +508,9 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>> MascotGenericFormat
     }
 }
 
-impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>> MascotGenericFormatMetadataBuilder<I> {
+impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
+    MascotGenericFormatMetadataBuilder<I, P>
+{
     /// Returns whether the line can be parsed by this parser.
     ///
     /// # Arguments
@@ -514,7 +518,7 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>> MascotGenericFormat
     ///
     /// # Examples
     /// The parser should be able to parse any of the following lines:
-    /// feature ids, parent ion masses, scan ids, charges, retention times,
+    /// feature IDs, precursor m/z values, scan ids, charges, retention times,
     /// filenames, partial-read scan markers, and merged-scan metadata lines.
     pub(super) fn can_parse_line(line: &str) -> bool {
         line.starts_with("FEATURE_ID=")
@@ -531,8 +535,7 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>> MascotGenericFormat
     pub(super) const fn can_build(&self) -> bool {
         self.feature_id.is_some()
             && self.level.is_some()
-            && self.parent_ion_mass.is_some()
-            && self.retention_time.is_some()
+            && self.precursor_mz.is_some()
             && self.charge.is_some()
             && (!self.has_merged_scan_metadata() || self.merged_scan_metadata_is_complete())
     }
@@ -545,7 +548,7 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>> MascotGenericFormat
     /// # Error
     /// * If feature ID was already encountered and it is now different.
     /// * If scans is not -1 or equal to the feature ID.
-    /// * If pepmass was already encountered and it is now different.
+    /// * If PEPMASS was already encountered and it is now different.
     /// * If rtinseconds was already encountered and it is now different.
     pub(super) fn digest_line(&mut self, line: &str) -> Result<()> {
         if let Some(stripped) = line.strip_prefix("FEATURE_ID=") {
@@ -553,7 +556,7 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>> MascotGenericFormat
         }
 
         if let Some(stripped) = line.strip_prefix("PEPMASS=") {
-            return self.digest_parent_ion_mass_line(stripped, line);
+            return self.digest_precursor_mz_line(stripped, line);
         }
 
         if line.starts_with("MSLEVEL=") {
@@ -632,23 +635,38 @@ mod tests {
         parser.digest_line("RTINSECONDS=37.083")?;
         parser.digest_line("FILENAME=20220513_PMA_DBGI_01_04_003.mzML")?;
 
-        let mascot_generic_format_metadata = parser.build()?;
+        let (mascot_generic_format_metadata, precursor_mz) = parser.build()?;
 
         assert_eq!(mascot_generic_format_metadata.feature_id(), 1);
         assert_eq!(mascot_generic_format_metadata.level(), 2);
+        assert_eq!(precursor_mz.to_bits(), 381.0795_f64.to_bits());
         assert_eq!(
-            mascot_generic_format_metadata.parent_ion_mass().to_bits(),
-            381.0795_f64.to_bits()
-        );
-        assert_eq!(
-            mascot_generic_format_metadata.retention_time().to_bits(),
-            37.083_f64.to_bits()
+            mascot_generic_format_metadata
+                .retention_time()
+                .map(f64::to_bits),
+            Some(37.083_f64.to_bits())
         );
         assert_eq!(mascot_generic_format_metadata.charge(), 1);
         assert_eq!(
             mascot_generic_format_metadata.filename(),
             Some("20220513_PMA_DBGI_01_04_003.mzML")
         );
+        Ok(())
+    }
+
+    #[test]
+    fn build_returns_precursor_mz_in_requested_precision() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize, f32>::default();
+
+        parser.digest_line("FEATURE_ID=1")?;
+        parser.digest_line("PEPMASS=381.0795")?;
+        parser.digest_line("MSLEVEL=2")?;
+        parser.digest_line("SCANS=1")?;
+        parser.digest_line("CHARGE=1")?;
+
+        let (_mascot_generic_format_metadata, precursor_mz) = parser.build()?;
+
+        assert_eq!(precursor_mz.to_bits(), 381.0795_f32.to_bits());
         Ok(())
     }
 
@@ -699,7 +717,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_conflicting_parent_ion_mass() -> Result<()> {
+    fn rejects_conflicting_precursor_mz() -> Result<()> {
         let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
         parser.digest_line("PEPMASS=381.0795")?;
         assert!(parser.digest_line("PEPMASS=381.0796").is_err());

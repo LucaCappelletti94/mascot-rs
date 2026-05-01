@@ -1,4 +1,4 @@
-use std::{fmt::Debug, ops::Add, str::FromStr};
+use std::{fmt::Debug, marker::PhantomData, ops::Add, str::FromStr};
 
 use crate::mascot_generic_format::MascotGenericFormat;
 use crate::mascot_generic_format_metadata_builder::MascotGenericFormatMetadataBuilder;
@@ -6,25 +6,27 @@ use crate::prelude::*;
 
 #[derive(Debug, Clone)]
 /// A builder for [`MascotGenericFormat`].
-pub struct MascotGenericFormatBuilder<I> {
-    metadata_builder: MascotGenericFormatMetadataBuilder<I>,
+pub struct MascotGenericFormatBuilder<I, P: SpectrumFloat = f64> {
+    metadata_builder: MascotGenericFormatMetadataBuilder<I, P>,
     mass_divided_by_charge_ratios: Vec<f64>,
     fragment_intensities: Vec<f64>,
     section_open: bool,
+    precision: PhantomData<P>,
 }
 
-impl<I> Default for MascotGenericFormatBuilder<I> {
+impl<I, P: SpectrumFloat> Default for MascotGenericFormatBuilder<I, P> {
     fn default() -> Self {
         Self {
             metadata_builder: MascotGenericFormatMetadataBuilder::default(),
             mass_divided_by_charge_ratios: Vec::new(),
             fragment_intensities: Vec::new(),
             section_open: false,
+            precision: PhantomData,
         }
     }
 }
 
-impl<I> MascotGenericFormatBuilder<I>
+impl<I, P: SpectrumFloat> MascotGenericFormatBuilder<I, P>
 where
     I: Copy + Eq + Debug + Add<Output = I> + FromStr + From<usize>,
 {
@@ -33,23 +35,28 @@ where
     /// # Errors
     /// Returns an error if the parsed metadata or data blocks are incomplete or
     /// invalid.
-    pub(super) fn build(self) -> Result<MascotGenericFormat<I>> {
-        let metadata = self.metadata_builder.build()?;
+    pub(super) fn build(self) -> Result<MascotGenericFormat<I, P>> {
+        let (metadata, precursor_mz) = self.metadata_builder.build()?;
 
         MascotGenericFormat::new(
             metadata,
+            precursor_mz.to_f64(),
             self.mass_divided_by_charge_ratios,
             self.fragment_intensities,
         )
     }
 }
 
-impl<I> MascotGenericFormatBuilder<I>
+impl<I, P: SpectrumFloat> MascotGenericFormatBuilder<I, P>
 where
     I: Copy + Eq + Debug + Add<Output = I> + FromStr + From<usize>,
 {
     fn is_spectrum_type_line(line: &str) -> bool {
         line.starts_with("SPECTYPE=CORRELATED MS")
+    }
+
+    fn is_annotation_line(line: &str) -> bool {
+        line.contains('=')
     }
 
     fn digest_peak_line(&mut self, line: &str) -> Result<()> {
@@ -121,6 +128,13 @@ where
             && !self.mass_divided_by_charge_ratios.is_empty()
     }
 
+    pub(super) const fn can_skip_empty_section(&self) -> bool {
+        !self.section_open
+            && self.metadata_builder.can_build()
+            && self.mass_divided_by_charge_ratios.is_empty()
+            && self.fragment_intensities.is_empty()
+    }
+
     /// Digests the given line.
     ///
     /// # Arguments
@@ -136,12 +150,14 @@ where
             self.section_open = true;
         } else if line == "END IONS" {
             self.section_open = false;
-        } else if MascotGenericFormatMetadataBuilder::<I>::can_parse_line(line) {
+        } else if MascotGenericFormatMetadataBuilder::<I, P>::can_parse_line(line) {
             self.metadata_builder.digest_line(line)?;
         } else if Self::is_spectrum_type_line(line) {
             return Ok(());
         } else if self.section_open {
-            self.digest_peak_line(line)?;
+            if !Self::is_annotation_line(line) {
+                self.digest_peak_line(line)?;
+            }
         } else {
             return Err(MascotError::LineOutsideIonSection {
                 line: line.to_string(),

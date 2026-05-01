@@ -69,6 +69,119 @@ impl FromStr for IonMode {
     }
 }
 
+/// Instrument identity parsed from MGF `SOURCE_INSTRUMENT` metadata.
+///
+/// Raw GNPS-style values often include non-instrument prefixes and acquisition
+/// labels. Parsing keeps only the instrument or analyzer identity.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
+#[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
+#[cfg_attr(feature = "mem_size", mem_size(flat))]
+pub enum Instrument {
+    /// Orbitrap.
+    Orbitrap,
+    /// Time-of-flight.
+    TimeOfFlight,
+    /// Quadrupole.
+    Quadrupole,
+    /// Ion trap.
+    IonTrap,
+    /// Fourier-transform instrument.
+    FourierTransform,
+    /// Magnetic-sector instrument.
+    MagneticSector,
+    /// Present instrument metadata that is not yet normalized.
+    Other,
+}
+
+impl Instrument {
+    /// Returns the canonical display string for this instrument class.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Orbitrap => "Orbitrap",
+            Self::TimeOfFlight => "TOF",
+            Self::Quadrupole => "Quadrupole",
+            Self::IonTrap => "Ion trap",
+            Self::FourierTransform => "Fourier transform",
+            Self::MagneticSector => "Magnetic sector",
+            Self::Other => "Other",
+        }
+    }
+
+    fn normalized_key(value: &str) -> String {
+        let mut normalized = value.trim().to_ascii_lowercase();
+        normalized.retain(|character| character.is_ascii_alphanumeric());
+        normalized
+    }
+}
+
+impl fmt::Display for Instrument {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for Instrument {
+    type Err = MascotError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let normalized = Self::normalized_key(s);
+        Ok(match normalized.as_str() {
+            "lcesiorbitrap"
+            | "esiorbitrap"
+            | "diesiorbitrap"
+            | "apciorbitrap"
+            | "qexactiveplusorbitrapres14k"
+            | "qexactiveplusorbitrapres70k"
+            | "lcesiqexactiveplusorbitrapres14k"
+            | "lcesiqexactiveplusorbitrapres70k"
+            | "diesiqexactive" => Self::Orbitrap,
+            "esiqtof"
+            | "esilcesiqtof"
+            | "esilcqtofms"
+            | "esiuplcesiqtof"
+            | "lcesiqtof"
+            | "lcesiqtofms"
+            | "diesiqtof"
+            | "apciqtof"
+            | "lcapciqtof"
+            | "maldiqtof"
+            | "lcesimaxisiihdqtofbruker"
+            | "lcesimaxishdqtof"
+            | "maxishdqtof"
+            | "lcesiimpacthd"
+            | "esihplcesitof"
+            | "lcesitof" => Self::TimeOfFlight,
+            "esilcesiqq"
+            | "esilcappiqq"
+            | "esiqqq"
+            | "lcesiqqq"
+            | "esiflowinjectionqqqms"
+            | "diesiqqq"
+            | "apciqqq"
+            | "eiqqq"
+            | "negativequattroqqq10ev"
+            | "negativequattroqqq25ev"
+            | "negativequattroqqq40ev"
+            | "positivequattroqqq10ev"
+            | "positivequattroqqq25ev"
+            | "positivequattroqqq40ev"
+            | "esilcesiq" => Self::Quadrupole,
+            "esiiontrap" | "esilcesiit" | "lcesiiontrap" | "diesiiontrap" | "apciiontrap" => {
+                Self::IonTrap
+            }
+            "esiesiitft" | "esilcesiitft" | "esiapciitft" | "esihybridft" | "lcesihybridft"
+            | "diesihybridft" | "esilcesiqft" | "esiesifticr" | "diesiltqfticr" => {
+                Self::FourierTransform
+            }
+            "esilcesiittof" => Self::IonTrap,
+            "esifabebeb" => Self::MagneticSector,
+            _ => Self::Other,
+        })
+    }
+}
+
 /// Metadata for one Mascot Generic Format ion block.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
@@ -81,6 +194,7 @@ pub struct MascotGenericFormatMetadata<I> {
     filename: Option<String>,
     smiles: Option<SmilesMetadata>,
     ion_mode: Option<IonMode>,
+    source_instrument: Option<Instrument>,
 }
 
 #[derive(Debug, Clone)]
@@ -312,7 +426,40 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
             filename,
             smiles: smiles.map(SmilesMetadata),
             ion_mode,
+            source_instrument: None,
         })
+    }
+
+    /// Returns this metadata with normalized instrument metadata set.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mascot_rs::prelude::*;
+    ///
+    /// let metadata: MascotGenericFormatMetadata<usize> =
+    ///     MascotGenericFormatMetadata::new_with_smiles_and_ion_mode(
+    ///         Some(1),
+    ///         2,
+    ///         None,
+    ///         1,
+    ///         None,
+    ///         None,
+    ///         Some(IonMode::Positive),
+    ///     ).unwrap()
+    ///     .with_source_instrument(Some(
+    ///         Instrument::Orbitrap,
+    ///     ));
+    ///
+    /// assert_eq!(
+    ///     metadata.source_instrument(),
+    ///     Some(Instrument::Orbitrap)
+    /// );
+    /// ```
+    #[must_use]
+    pub const fn with_source_instrument(mut self, source_instrument: Option<Instrument>) -> Self {
+        self.source_instrument = source_instrument;
+        self
     }
 
     /// Returns the feature ID of the metadata, if present.
@@ -338,6 +485,11 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// Returns the ionization polarity of the metadata, if present.
     pub const fn ion_mode(&self) -> Option<IonMode> {
         self.ion_mode
+    }
+
+    /// Returns the normalized instrument metadata, if present.
+    pub const fn source_instrument(&self) -> Option<Instrument> {
+        self.source_instrument
     }
 
     /// Returns the filename of the metadata.

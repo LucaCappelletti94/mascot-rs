@@ -20,6 +20,7 @@ pub struct MascotGenericFormatMetadataBuilder<I, P: SpectrumFloat = f64> {
     filename: Option<String>,
     smiles: Option<Smiles>,
     ion_mode: Option<IonMode>,
+    source_instrument: Option<Instrument>,
 }
 
 impl<I, P: SpectrumFloat> Default for MascotGenericFormatMetadataBuilder<I, P> {
@@ -38,6 +39,7 @@ impl<I, P: SpectrumFloat> Default for MascotGenericFormatMetadataBuilder<I, P> {
             filename: None,
             smiles: None,
             ion_mode: None,
+            source_instrument: None,
         }
     }
 }
@@ -131,7 +133,8 @@ impl<
             self.filename,
             self.smiles,
             self.ion_mode,
-        )?;
+        )?
+        .with_source_instrument(self.source_instrument);
         let precursor_mz = self.precursor_mz.ok_or(MascotError::MissingField {
             builder: "MascotGenericFormat",
             field: "precursor_mz",
@@ -459,6 +462,36 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
         }
     }
 
+    fn digest_source_instrument_line(&mut self, stripped: &str, line: &str) -> Result<()> {
+        let stripped = stripped.trim();
+        if Self::missing_optional_metadata_value(stripped)
+            || stripped.eq_ignore_ascii_case("N/A-N/A")
+        {
+            return Ok(());
+        }
+
+        let source_instrument =
+            stripped
+                .parse::<Instrument>()
+                .map_err(|_| MascotError::ParseField {
+                    field: "source instrument",
+                    line: line.to_string(),
+                })?;
+        match self.source_instrument {
+            Some(observed_source_instrument) if observed_source_instrument != source_instrument => {
+                Err(MascotError::ConflictingField {
+                    field: "source_instrument",
+                    line: line.to_string(),
+                })
+            }
+            Some(_) => Ok(()),
+            None => {
+                self.source_instrument = Some(source_instrument);
+                Ok(())
+            }
+        }
+    }
+
     fn is_merged_scan_metadata_line(line: &str) -> bool {
         line.starts_with("MERGED_SCANS=") || line.starts_with("MERGED_STATS=")
     }
@@ -585,8 +618,8 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
     /// # Examples
     /// The parser should be able to parse any of the following lines:
     /// feature IDs, precursor m/z values, scan ids, charges, retention times,
-    /// filenames, SMILES, ion-mode metadata, partial-read scan markers, and
-    /// merged-scan metadata lines.
+    /// filenames, SMILES, ion-mode metadata, source-instrument metadata,
+    /// partial-read scan markers, and merged-scan metadata lines.
     pub(super) fn can_parse_line(line: &str) -> bool {
         line.starts_with("FEATURE_ID=")
             || line.starts_with("PEPMASS=")
@@ -596,6 +629,7 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
             || line.starts_with("FILENAME=")
             || line.starts_with("SMILES=")
             || line.starts_with("IONMODE=")
+            || line.starts_with("SOURCE_INSTRUMENT=")
             || line.starts_with("CHARGE=")
             || Self::is_merged_scan_metadata_line(line)
     }
@@ -655,6 +689,10 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
             return self.digest_ion_mode_line(stripped, line);
         }
 
+        if let Some(stripped) = line.strip_prefix("SOURCE_INSTRUMENT=") {
+            return self.digest_source_instrument_line(stripped, line);
+        }
+
         if Self::is_merged_scan_metadata_line(line) {
             return self.digest_merge_scans_line(line);
         }
@@ -692,6 +730,8 @@ mod tests {
             "IONMODE=Positive",
             "IONMODE=Negative",
             "IONMODE=N/A",
+            "SOURCE_INSTRUMENT=LC-ESI-Orbitrap",
+            "SOURCE_INSTRUMENT=N/A-N/A",
             "SCANS=-1",
         ] {
             assert!(MascotGenericFormatMetadataBuilder::<usize>::can_parse_line(
@@ -717,6 +757,7 @@ mod tests {
         parser.digest_line("FILENAME=20220513_PMA_DBGI_01_04_003.mzML")?;
         parser.digest_line("SMILES=CCO")?;
         parser.digest_line("IONMODE=Positive")?;
+        parser.digest_line("SOURCE_INSTRUMENT=LC-ESI-Orbitrap")?;
 
         let (mascot_generic_format_metadata, precursor_mz) = parser.build()?;
 
@@ -744,6 +785,10 @@ mod tests {
         assert_eq!(
             mascot_generic_format_metadata.ion_mode(),
             Some(IonMode::Positive)
+        );
+        assert_eq!(
+            mascot_generic_format_metadata.source_instrument(),
+            Some(Instrument::Orbitrap)
         );
         Ok(())
     }
@@ -869,6 +914,15 @@ mod tests {
     }
 
     #[test]
+    fn rejects_conflicting_source_instrument() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        parser.digest_line("SOURCE_INSTRUMENT=LC-ESI-Orbitrap")?;
+        parser.digest_line("SOURCE_INSTRUMENT=ESI-Orbitrap")?;
+        assert!(parser.digest_line("SOURCE_INSTRUMENT=ESI-qTof").is_err());
+        Ok(())
+    }
+
+    #[test]
     fn accepts_repeated_identical_metadata_lines() -> Result<()> {
         let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
 
@@ -893,6 +947,9 @@ mod tests {
             "IONMODE=Positive",
             "IONMODE=pos",
             "IONMODE=N/A",
+            "SOURCE_INSTRUMENT=LC-ESI-qTof",
+            "SOURCE_INSTRUMENT=ESI-LC-ESI-QTOF",
+            "SOURCE_INSTRUMENT=N/A-N/A",
         ] {
             parser.digest_line(line)?;
         }
@@ -1000,6 +1057,7 @@ mod tests {
             filename: None,
             smiles: None,
             ion_mode: None,
+            source_instrument: None,
         };
 
         assert!(matches!(

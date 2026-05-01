@@ -30,6 +30,7 @@ pub mod prelude {
     pub use crate::gnps::GNPS_ALL_MGF_URL;
     pub use crate::mascot_generic_format::MGFVec;
     pub use crate::mascot_generic_format::MascotGenericFormat;
+    pub use crate::mascot_generic_format_metadata::Instrument;
     pub use crate::mascot_generic_format_metadata::IonMode;
     pub use crate::mascot_generic_format_metadata::MascotGenericFormatMetadata;
     pub use mass_spectrometry::prelude::{GenericSpectrum, Spectra, Spectrum, SpectrumFloat};

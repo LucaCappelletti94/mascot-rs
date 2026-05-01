@@ -440,6 +440,7 @@ fn test_spectrum_access_uses_standard_traits() -> Result<()> {
         "MSLEVEL=2",
         "SMILES=CCO",
         "IONMODE=Positive",
+        "SOURCE_INSTRUMENT=LC-ESI-Orbitrap",
         "100.0 2.0",
         "200.0 3.0",
         "SCANS=1",
@@ -480,6 +481,7 @@ fn test_spectrum_access_uses_standard_traits() -> Result<()> {
     assert_eq!(mgf[0].charge(), 1);
     assert_eq!(mgf[0].ion_mode(), Some(IonMode::Positive));
     assert!(mgf[0].ion_mode().is_some_and(IonMode::is_positive));
+    assert_eq!(mgf[0].source_instrument(), Some(Instrument::Orbitrap));
     assert_eq!(Spectra::len(&mgf), 1);
     assert_eq!(
         mgf.spectra().next().map(MascotGenericFormat::feature_id),
@@ -585,6 +587,90 @@ fn test_metadata_parses_optional_ion_mode() -> Result<()> {
     assert_eq!(IonMode::Negative.to_string(), "Negative");
     assert_eq!(metadata.ion_mode(), Some(IonMode::Negative));
     assert_eq!(missing_mgf[0].ion_mode(), None);
+
+    Ok(())
+}
+
+#[test]
+fn test_metadata_parses_optional_source_instrument() -> Result<()> {
+    let liquid_chromatography_orbitrap = [
+        "BEGIN IONS",
+        "PEPMASS=500.0",
+        "CHARGE=1",
+        "RTINSECONDS=10.0",
+        "MSLEVEL=2",
+        "SOURCE_INSTRUMENT=LC-ESI-Orbitrap",
+        "100.0 2.0",
+        "SCANS=1",
+        "END IONS",
+    ];
+    let normalized_qtof = [
+        "BEGIN IONS",
+        "PEPMASS=500.0",
+        "CHARGE=1",
+        "RTINSECONDS=10.0",
+        "MSLEVEL=2",
+        "SOURCE_INSTRUMENT=ESI-LC-ESI-QTOF",
+        "100.0 2.0",
+        "SCANS=1",
+        "END IONS",
+    ];
+    let missing_source_instrument = [
+        "BEGIN IONS",
+        "PEPMASS=500.0",
+        "CHARGE=1",
+        "RTINSECONDS=10.0",
+        "MSLEVEL=2",
+        "SOURCE_INSTRUMENT=N/A-N/A",
+        "100.0 2.0",
+        "SCANS=1",
+        "END IONS",
+    ];
+    let unknown_source_instrument = [
+        "BEGIN IONS",
+        "PEPMASS=500.0",
+        "CHARGE=1",
+        "RTINSECONDS=10.0",
+        "MSLEVEL=2",
+        "SOURCE_INSTRUMENT=Vendor new analyzer 9000",
+        "100.0 2.0",
+        "SCANS=1",
+        "END IONS",
+    ];
+
+    let orbitrap_mgf: MGFVec<usize> = MGFVec::try_from_iter(liquid_chromatography_orbitrap)?;
+    let qtof_mgf: MGFVec<usize> = MGFVec::try_from_iter(normalized_qtof)?;
+    let missing_mgf: MGFVec<usize> = MGFVec::try_from_iter(missing_source_instrument)?;
+    let unknown_mgf: MGFVec<usize> = MGFVec::try_from_iter(unknown_source_instrument)?;
+    let metadata: MascotGenericFormatMetadata<usize> =
+        MascotGenericFormatMetadata::new_with_smiles_and_ion_mode(
+            Some(1),
+            2,
+            None,
+            1,
+            None,
+            None,
+            Some(IonMode::Positive),
+        )?
+        .with_source_instrument(Some(Instrument::Orbitrap));
+
+    assert_eq!(
+        orbitrap_mgf[0].source_instrument(),
+        Some(Instrument::Orbitrap)
+    );
+    assert_eq!(
+        orbitrap_mgf[0].metadata().source_instrument(),
+        Some(Instrument::Orbitrap)
+    );
+    assert_eq!(
+        qtof_mgf[0].source_instrument(),
+        Some(Instrument::TimeOfFlight)
+    );
+    assert_eq!(missing_mgf[0].source_instrument(), None);
+    assert_eq!(unknown_mgf[0].source_instrument(), Some(Instrument::Other));
+    assert_eq!(Instrument::Quadrupole.to_string(), "Quadrupole");
+    assert_eq!(Instrument::Orbitrap.as_str(), "Orbitrap");
+    assert_eq!(metadata.source_instrument(), Some(Instrument::Orbitrap));
 
     Ok(())
 }
@@ -770,6 +856,10 @@ fn test_gnps_library_records_parse_annotation_metadata() -> Result<()> {
     assert_eq!(mgf[0].metadata().retention_time(), None);
     assert!(mgf[0].metadata().smiles().is_none());
     assert_eq!(mgf[0].metadata().ion_mode(), Some(IonMode::Positive));
+    assert_eq!(
+        mgf[0].metadata().source_instrument(),
+        Some(Instrument::FourierTransform)
+    );
     assert_eq!(mgf[0].level(), 2);
     assert_eq!(mgf[0].len(), 3);
 
@@ -798,6 +888,7 @@ fn test_records_without_feature_id_are_accepted() -> Result<()> {
     assert_eq!(mgf.len(), 1);
     assert_eq!(mgf[0].feature_id(), None);
     assert_eq!(mgf[0].metadata().feature_id(), None);
+    assert_eq!(mgf[0].source_instrument(), Some(Instrument::TimeOfFlight));
     assert_eq!(mgf[0].len(), 2);
 
     Ok(())

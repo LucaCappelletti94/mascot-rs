@@ -17,7 +17,7 @@ categories = [
 console = { version = "=0.15.8", optional = true }
 flate2 = { version = "1.0", default-features = false, features = ["rust_backend"], optional = true }
 indicatif = { version = "0.17", default-features = false, optional = true }
-mass_spectrometry = { git = "https://github.com/earth-metabolome-initiative/mass-spectrometry-traits", rev = "a277e6e0b6becb88312d895ce61ee45d4c4a1378", default-features = false }
+mass_spectrometry = { git = "https://github.com/earth-metabolome-initiative/mass-spectrometry-traits", rev = "8aba0c68215bab50b2599fada002bd467cf7bd48", default-features = false }
 mem_dbg = { version = "0.4", default-features = false, features = ["derive", "half"], optional = true }
 smiles-parser = { git = "https://github.com/earth-metabolome-initiative/smiles-parser", rev = "14d9be8be449d0995719dd5c7f1767e55d10d91c", default-features = false }
 thiserror = { version = "2.0", default-features = false }

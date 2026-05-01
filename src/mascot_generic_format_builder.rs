@@ -9,8 +9,8 @@ use crate::prelude::*;
 /// A builder for [`MascotGenericFormat`].
 pub struct MascotGenericFormatBuilder<I, P: SpectrumFloat = f64> {
     metadata_builder: MascotGenericFormatMetadataBuilder<I, P>,
-    mass_divided_by_charge_ratios: Vec<f64>,
-    fragment_intensities: Vec<f64>,
+    mass_divided_by_charge_ratios: Vec<P>,
+    fragment_intensities: Vec<P>,
     section_open: bool,
     precision: PhantomData<P>,
 }
@@ -41,7 +41,7 @@ where
 
         MascotGenericFormat::new(
             metadata,
-            precursor_mz.to_f64(),
+            precursor_mz,
             self.mass_divided_by_charge_ratios,
             self.fragment_intensities,
         )
@@ -109,6 +109,33 @@ where
         }
 
         if fragment_intensity <= 0.0 {
+            return Err(MascotError::NonPositiveField {
+                field: "fragment intensity",
+                line: line.to_string(),
+            });
+        }
+
+        let mass_divided_by_charge_ratio =
+            P::from_f64(mass_divided_by_charge_ratio).ok_or_else(|| {
+                MascotError::UnrepresentablePrecisionField {
+                    field: "mass divided by charge ratio",
+                    line: line.to_string(),
+                }
+            })?;
+        if mass_divided_by_charge_ratio.to_f64() <= 0.0 {
+            return Err(MascotError::NonPositiveField {
+                field: "mass divided by charge ratio",
+                line: line.to_string(),
+            });
+        }
+
+        let fragment_intensity = P::from_f64(fragment_intensity).ok_or_else(|| {
+            MascotError::UnrepresentablePrecisionField {
+                field: "fragment intensity",
+                line: line.to_string(),
+            }
+        })?;
+        if fragment_intensity.to_f64() <= 0.0 {
             return Err(MascotError::NonPositiveField {
                 field: "fragment intensity",
                 line: line.to_string(),

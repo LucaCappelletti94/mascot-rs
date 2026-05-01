@@ -43,9 +43,9 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
     /// invalid, or if first-level data is incompatible with the precursor m/z.
     pub fn new(
         metadata: MascotGenericFormatMetadata<I>,
-        precursor_mz: f64,
-        mass_divided_by_charge_ratios: Vec<f64>,
-        fragment_intensities: Vec<f64>,
+        precursor_mz: P,
+        mass_divided_by_charge_ratios: Vec<P>,
+        fragment_intensities: Vec<P>,
     ) -> Result<Self> {
         if mass_divided_by_charge_ratios.len() != fragment_intensities.len() {
             return Err(MascotError::PeakVectorLengthMismatch {
@@ -59,19 +59,50 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
         }
 
         let peak_capacity = mass_divided_by_charge_ratios.len();
-        let mut spectrum = GenericSpectrum::<P>::try_with_capacity(precursor_mz, peak_capacity)?;
+        let mut spectrum =
+            GenericSpectrum::<P>::try_with_capacity(precursor_mz.to_f64(), peak_capacity)?;
 
         let mut peaks = mass_divided_by_charge_ratios
             .into_iter()
             .zip(fragment_intensities)
             .collect::<Vec<_>>();
-        peaks.sort_by(|(left_mz, _), (right_mz, _)| left_mz.total_cmp(right_mz));
+        for (mz, intensity) in &peaks {
+            if !mz.is_finite() {
+                return Err(MascotError::NonFiniteField {
+                    field: "mass divided by charge ratio",
+                    line: mz.to_f64().to_string(),
+                });
+            }
+            if mz.to_f64() <= 0.0 {
+                return Err(MascotError::NonPositiveField {
+                    field: "mass divided by charge ratio",
+                    line: mz.to_f64().to_string(),
+                });
+            }
+            if !intensity.is_finite() {
+                return Err(MascotError::NonFiniteField {
+                    field: "fragment intensity",
+                    line: intensity.to_f64().to_string(),
+                });
+            }
+            if intensity.to_f64() <= 0.0 {
+                return Err(MascotError::NonPositiveField {
+                    field: "fragment intensity",
+                    line: intensity.to_f64().to_string(),
+                });
+            }
+        }
+        peaks.sort_by(|(left_mz, _), (right_mz, _)| left_mz.to_f64().total_cmp(&right_mz.to_f64()));
 
-        let mut merged_peaks: Vec<(f64, f64)> = Vec::with_capacity(peaks.len());
+        let mut merged_peaks: Vec<(P, P)> = Vec::with_capacity(peaks.len());
         for (mz, intensity) in peaks {
             if let Some((last_mz, last_intensity)) = merged_peaks.last_mut() {
-                if last_mz.to_bits() == mz.to_bits() {
-                    *last_intensity += intensity;
+                if last_mz.to_f64().to_bits() == mz.to_f64().to_bits() {
+                    *last_intensity = P::from_f64(last_intensity.to_f64() + intensity.to_f64())
+                        .ok_or_else(|| MascotError::UnrepresentablePrecisionField {
+                            field: "fragment intensity",
+                            line: intensity.to_f64().to_string(),
+                        })?;
                     continue;
                 }
             }

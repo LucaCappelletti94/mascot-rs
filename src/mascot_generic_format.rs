@@ -1,6 +1,8 @@
 #[cfg(feature = "std")]
 use alloc::string::String;
 use alloc::{boxed::Box, string::ToString, vec::Vec};
+#[cfg(feature = "std")]
+use core::fmt::Display;
 use core::{
     fmt::Debug,
     ops::{Add, Index},
@@ -9,7 +11,7 @@ use core::{
 #[cfg(feature = "std")]
 use std::{
     fs::File,
-    io::{BufRead, BufReader},
+    io::{BufRead, BufReader, BufWriter, Write},
     path::Path,
 };
 
@@ -121,6 +123,90 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
     #[must_use]
     pub const fn metadata(&self) -> &MascotGenericFormatMetadata<I> {
         &self.metadata
+    }
+
+    #[cfg(feature = "std")]
+    fn map_output_io(result: std::io::Result<()>) -> Result<()> {
+        result.map_err(|source| MascotError::OutputIo { source })
+    }
+}
+
+#[cfg(feature = "std")]
+impl<I, P> MascotGenericFormat<I, P>
+where
+    I: Copy + Display,
+    P: SpectrumFloat,
+{
+    /// Writes this record in canonical MGF syntax to a writer.
+    ///
+    /// # Errors
+    /// Returns an error if the writer cannot be written.
+    pub fn write_to<W>(&self, mut writer: W) -> Result<()>
+    where
+        W: Write,
+    {
+        self.write_record_to(&mut writer)
+    }
+
+    /// Writes this record to a path.
+    ///
+    /// Files ending in `.zst`, `.zstd`, `.gz`, or `.gzip` are compressed while
+    /// they are written.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be created, compressed, or written.
+    pub fn to_path<PathLike>(&self, path: PathLike) -> Result<()>
+    where
+        PathLike: AsRef<Path>,
+    {
+        MGFVec::<I, P>::write_to_path(path, |writer| self.write_record_to(writer))
+    }
+
+    fn write_record_to<W>(&self, writer: &mut W) -> Result<()>
+    where
+        W: Write + ?Sized,
+    {
+        Self::map_output_io(writeln!(writer, "BEGIN IONS"))?;
+        if let Some(feature_id) = self.metadata.feature_id() {
+            Self::map_output_io(writeln!(writer, "FEATURE_ID={feature_id}"))?;
+        }
+        Self::map_output_io(writeln!(
+            writer,
+            "PEPMASS={}",
+            self.spectrum.precursor_mz().to_f64()
+        ))?;
+        Self::map_output_io(writeln!(writer, "CHARGE={}", self.metadata.charge()))?;
+        if let Some(retention_time) = self.metadata.retention_time() {
+            Self::map_output_io(writeln!(writer, "RTINSECONDS={retention_time}"))?;
+        }
+        Self::map_output_io(writeln!(writer, "MSLEVEL={}", self.metadata.level()))?;
+        if let Some(filename) = self.metadata.filename() {
+            Self::map_output_io(writeln!(writer, "FILENAME={filename}"))?;
+        }
+        if let Some(smiles) = self.metadata.smiles() {
+            Self::map_output_io(writeln!(writer, "SMILES={smiles}"))?;
+        }
+        if let Some(ion_mode) = self.metadata.ion_mode() {
+            Self::map_output_io(writeln!(writer, "IONMODE={ion_mode}"))?;
+        }
+        if let Some(source_instrument) = self.metadata.source_instrument() {
+            Self::map_output_io(writeln!(writer, "SOURCE_INSTRUMENT={source_instrument}"))?;
+        }
+        for (mass_divided_by_charge_ratio, fragment_intensity) in self.spectrum.peaks() {
+            Self::map_output_io(writeln!(
+                writer,
+                "{} {}",
+                mass_divided_by_charge_ratio.to_f64(),
+                fragment_intensity.to_f64()
+            ))?;
+        }
+        match self.metadata.feature_id() {
+            Some(feature_id) => Self::map_output_io(writeln!(writer, "SCANS={feature_id}"))?,
+            None => Self::map_output_io(writeln!(writer, "SCANS=-1"))?,
+        }
+        Self::map_output_io(writeln!(writer, "END IONS"))?;
+
+        Ok(())
     }
 }
 
@@ -314,6 +400,53 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
             })
     }
 
+    #[cfg(feature = "std")]
+    fn write_to_path<PathLike, F>(path: PathLike, write: F) -> Result<()>
+    where
+        PathLike: AsRef<Path>,
+        F: FnOnce(&mut dyn Write) -> Result<()>,
+    {
+        let path = path.as_ref();
+        let file = File::create(path).map_err(|source| MascotError::Io {
+            path: path.display().to_string(),
+            source,
+        })?;
+
+        if Self::has_extension(path, &["zst", "zstd"]) {
+            let writer = BufWriter::new(file);
+            let mut encoder =
+                zstd::stream::write::Encoder::new(writer, 0).map_err(|source| MascotError::Io {
+                    path: path.display().to_string(),
+                    source,
+                })?;
+            write(&mut encoder)?;
+            encoder.finish().map_err(|source| MascotError::Io {
+                path: path.display().to_string(),
+                source,
+            })?;
+            return Ok(());
+        }
+
+        if Self::has_extension(path, &["gz", "gzip"]) {
+            let writer = BufWriter::new(file);
+            let mut encoder = flate2::write::GzEncoder::new(writer, flate2::Compression::default());
+            write(&mut encoder)?;
+            encoder.finish().map_err(|source| MascotError::Io {
+                path: path.display().to_string(),
+                source,
+            })?;
+            return Ok(());
+        }
+
+        let mut writer = BufWriter::new(file);
+        write(&mut writer)?;
+        writer.flush().map_err(|source| MascotError::Io {
+            path: path.display().to_string(),
+            source,
+        })?;
+        Ok(())
+    }
+
     /// Creates a new vector of MGF objects from a buffered line reader.
     ///
     /// # Errors
@@ -475,6 +608,11 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
         Self::from_reader_skipping_invalid_records(Self::reader_from_path(path)?)
     }
 
+    /// Returns an iterator over the MGF records in the collection.
+    pub fn iter(&self) -> core::slice::Iter<'_, MascotGenericFormat<I, P>> {
+        self.mascot_generic_formats.iter()
+    }
+
     /// Returns the number of MGF records in the collection.
     #[must_use]
     pub const fn len(&self) -> usize {
@@ -485,6 +623,47 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
     #[must_use]
     pub const fn is_empty(&self) -> bool {
         self.mascot_generic_formats.is_empty()
+    }
+}
+
+#[cfg(feature = "std")]
+impl<I, P> MGFVec<I, P>
+where
+    I: Copy + Display,
+    P: SpectrumFloat,
+{
+    /// Writes all records in canonical MGF syntax to a writer.
+    ///
+    /// Records are separated by one blank line.
+    ///
+    /// # Errors
+    /// Returns an error if the writer cannot be written.
+    pub fn write_to<W>(&self, mut writer: W) -> Result<()>
+    where
+        W: Write,
+    {
+        for (index, mascot_generic_format) in self.mascot_generic_formats.iter().enumerate() {
+            if index > 0 {
+                MascotGenericFormat::<I, P>::map_output_io(writeln!(writer))?;
+            }
+            mascot_generic_format.write_record_to(&mut writer)?;
+        }
+
+        Ok(())
+    }
+
+    /// Writes all records to a path.
+    ///
+    /// Files ending in `.zst`, `.zstd`, `.gz`, or `.gzip` are compressed while
+    /// they are written.
+    ///
+    /// # Errors
+    /// Returns an error if the file cannot be created, compressed, or written.
+    pub fn to_path<PathLike>(&self, path: PathLike) -> Result<()>
+    where
+        PathLike: AsRef<Path>,
+    {
+        Self::write_to_path(path, |writer| self.write_to(writer))
     }
 }
 
@@ -502,6 +681,35 @@ impl<I, P: SpectrumFloat> Default for MGFVec<I, P> {
         Self {
             mascot_generic_formats: Vec::new(),
         }
+    }
+}
+
+impl<I, P: SpectrumFloat> FromIterator<MascotGenericFormat<I, P>> for MGFVec<I, P> {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = MascotGenericFormat<I, P>>,
+    {
+        Self {
+            mascot_generic_formats: iter.into_iter().collect(),
+        }
+    }
+}
+
+impl<I, P: SpectrumFloat> IntoIterator for MGFVec<I, P> {
+    type IntoIter = alloc::vec::IntoIter<MascotGenericFormat<I, P>>;
+    type Item = MascotGenericFormat<I, P>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.mascot_generic_formats.into_iter()
+    }
+}
+
+impl<'a, I, P: SpectrumFloat> IntoIterator for &'a MGFVec<I, P> {
+    type IntoIter = core::slice::Iter<'a, MascotGenericFormat<I, P>>;
+    type Item = &'a MascotGenericFormat<I, P>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
     }
 }
 

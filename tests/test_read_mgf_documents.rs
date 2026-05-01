@@ -261,6 +261,180 @@ fn test_from_path_reads_gzip_compressed_mgf() -> std::result::Result<(), Box<dyn
 }
 
 #[test]
+fn test_mgf_vec_writes_to_writer_and_round_trips(
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let document = r"BEGIN IONS
+FEATURE_ID=1
+PEPMASS=500.0
+CHARGE=1
+RTINSECONDS=10.0
+MSLEVEL=2
+FILENAME=sample.mzML
+SMILES=CCO
+IONMODE=Positive
+SOURCE_INSTRUMENT=LC-ESI-Orbitrap
+200.0 3.0
+100.0 2.0
+SCANS=1
+END IONS
+
+BEGIN IONS
+PEPMASS=600.0
+CHARGE=-1
+MSLEVEL=2
+IONMODE=Negative
+300.0 4.0
+SCANS=-1
+END IONS
+";
+    let mgf: MGFVec<usize> = document.parse()?;
+    let mut output = Vec::new();
+
+    mgf.write_to(&mut output)?;
+
+    let serialized = std::str::from_utf8(&output)?;
+    let reparsed: MGFVec<usize> = serialized.parse()?;
+
+    assert!(serialized.contains("SOURCE_INSTRUMENT=Orbitrap"));
+    assert!(serialized.contains("SCANS=-1"));
+    assert_eq!(reparsed.len(), 2);
+    assert_eq!(reparsed[0].feature_id(), Some(1));
+    assert_eq!(reparsed[0].metadata().filename(), Some("sample.mzML"));
+    assert_eq!(
+        reparsed[0]
+            .metadata()
+            .smiles()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("CCO")
+    );
+    assert_eq!(reparsed[0].ion_mode(), Some(IonMode::Positive));
+    assert_eq!(reparsed[0].source_instrument(), Some(Instrument::Orbitrap));
+    assert_eq!(
+        reparsed[0]
+            .peaks()
+            .map(|(mass_divided_by_charge_ratio, fragment_intensity)| {
+                (
+                    mass_divided_by_charge_ratio.to_bits(),
+                    fragment_intensity.to_bits(),
+                )
+            })
+            .collect::<Vec<_>>(),
+        vec![
+            (100.0_f64.to_bits(), 2.0_f64.to_bits()),
+            (200.0_f64.to_bits(), 3.0_f64.to_bits()),
+        ]
+    );
+    assert_eq!(reparsed[1].feature_id(), None);
+    assert_eq!(reparsed[1].charge(), -1);
+    assert_eq!(reparsed[1].ion_mode(), Some(IonMode::Negative));
+
+    Ok(())
+}
+
+#[test]
+fn test_single_mgf_writes_to_writer_and_round_trips(
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let document = r"BEGIN IONS
+FEATURE_ID=7
+PEPMASS=700.0
+CHARGE=1
+RTINSECONDS=14.0
+MSLEVEL=2
+100.0 2.0
+SCANS=7
+END IONS
+";
+    let record: MascotGenericFormat<usize, f32> = document.parse()?;
+    let mut output = Vec::new();
+
+    record.write_to(&mut output)?;
+
+    let serialized = std::str::from_utf8(&output)?;
+    let reparsed: MascotGenericFormat<usize, f32> = serialized.parse()?;
+
+    assert_eq!(serialized.matches("BEGIN IONS").count(), 1);
+    assert_eq!(reparsed.feature_id(), Some(7));
+    assert_eq!(reparsed.precursor_mz().to_bits(), 700.0_f32.to_bits());
+    assert_eq!(reparsed.mz_nth(0).to_bits(), 100.0_f32.to_bits());
+
+    Ok(())
+}
+
+#[test]
+fn test_mgf_vec_and_record_write_to_compressed_paths(
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let target_directory = std::env::temp_dir().join(format!(
+        "mascot-rs-write-compressed-test-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&target_directory);
+    std::fs::create_dir_all(&target_directory)?;
+    let zstd_path = target_directory.join("written.mgf.zst");
+    let gzip_path = target_directory.join("single.mgf.gz");
+    let document = r"BEGIN IONS
+FEATURE_ID=3
+PEPMASS=500.0
+CHARGE=1
+MSLEVEL=2
+100.0 2.0
+SCANS=3
+END IONS
+";
+    let mgf: MGFVec<usize, f32> = document.parse()?;
+    let record: MascotGenericFormat<usize, f32> = document.parse()?;
+
+    mgf.to_path(&zstd_path)?;
+    record.to_path(&gzip_path)?;
+
+    let read_zstd: MGFVec<usize, f32> = MGFVec::from_path(&zstd_path)?;
+    let read_gzip: MGFVec<usize, f32> = MGFVec::from_path(&gzip_path)?;
+
+    std::fs::remove_dir_all(&target_directory)?;
+
+    assert_eq!(read_zstd.len(), 1);
+    assert_eq!(read_zstd[0].feature_id(), Some(3));
+    assert_eq!(read_zstd[0].precursor_mz().to_bits(), 500.0_f32.to_bits());
+    assert_eq!(read_gzip.len(), 1);
+    assert_eq!(read_gzip[0].feature_id(), Some(3));
+
+    Ok(())
+}
+
+#[test]
+fn test_write_to_reports_writer_errors() -> Result<()> {
+    struct FailingWriter;
+
+    impl std::io::Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> std::io::Result<usize> {
+            Err(std::io::Error::other("forced write failure"))
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let document = r"BEGIN IONS
+FEATURE_ID=1
+PEPMASS=500.0
+CHARGE=1
+MSLEVEL=2
+100.0 2.0
+SCANS=1
+END IONS
+";
+    let mgf: MGFVec<usize> = document.parse()?;
+
+    assert!(matches!(
+        mgf.write_to(FailingWriter),
+        Err(MascotError::OutputIo { .. })
+    ));
+
+    Ok(())
+}
+
+#[test]
 fn test_unsorted_duplicate_peaks_are_normalized() -> Result<()> {
     let lines = [
         "FEATURE_ID=1",
@@ -376,6 +550,52 @@ fn test_mgf_vec_from_str_accepts_multiple_ion_blocks() -> Result<()> {
     assert_eq!(mgf[0].feature_id(), Some(1));
     assert_eq!(mgf[1].feature_id(), Some(2));
     assert_eq!(mgf[1].precursor_mz().to_bits(), 600.0_f32.to_bits());
+
+    Ok(())
+}
+
+#[test]
+fn test_mgf_vec_iteration_helpers_are_standard_collection_interfaces() -> Result<()> {
+    let document = concat!(
+        "BEGIN IONS\n",
+        "FEATURE_ID=1\n",
+        "PEPMASS=500.0\n",
+        "CHARGE=1\n",
+        "RTINSECONDS=10.0\n",
+        "MSLEVEL=2\n",
+        "100.0 2.0\n",
+        "SCANS=1\n",
+        "END IONS\n",
+        "\n",
+        "BEGIN IONS\n",
+        "FEATURE_ID=2\n",
+        "PEPMASS=600.0\n",
+        "CHARGE=1\n",
+        "RTINSECONDS=12.0\n",
+        "MSLEVEL=2\n",
+        "200.0 3.0\n",
+        "SCANS=2\n",
+        "END IONS\n",
+    );
+    let mgf: MGFVec<usize> = document.parse()?;
+
+    let iter_ids = mgf
+        .iter()
+        .map(MascotGenericFormat::feature_id)
+        .collect::<Vec<_>>();
+    let borrowed_iter_ids = (&mgf)
+        .into_iter()
+        .map(MascotGenericFormat::feature_id)
+        .collect::<Vec<_>>();
+    let filtered: MGFVec<usize> = mgf
+        .into_iter()
+        .filter(|record| record.feature_id() == Some(2))
+        .collect();
+
+    assert_eq!(iter_ids, vec![Some(1), Some(2)]);
+    assert_eq!(borrowed_iter_ids, iter_ids);
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].feature_id(), Some(2));
 
     Ok(())
 }

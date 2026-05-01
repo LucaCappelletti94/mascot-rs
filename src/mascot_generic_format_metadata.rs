@@ -128,7 +128,8 @@ impl FromStr for Instrument {
     fn from_str(s: &str) -> Result<Self> {
         let normalized = Self::normalized_key(s);
         Ok(match normalized.as_str() {
-            "lcesiorbitrap"
+            "orbitrap"
+            | "lcesiorbitrap"
             | "esiorbitrap"
             | "diesiorbitrap"
             | "apciorbitrap"
@@ -137,7 +138,9 @@ impl FromStr for Instrument {
             | "lcesiqexactiveplusorbitrapres14k"
             | "lcesiqexactiveplusorbitrapres70k"
             | "diesiqexactive" => Self::Orbitrap,
-            "esiqtof"
+            "tof"
+            | "timeofflight"
+            | "esiqtof"
             | "esilcesiqtof"
             | "esilcqtofms"
             | "esiuplcesiqtof"
@@ -153,7 +156,8 @@ impl FromStr for Instrument {
             | "lcesiimpacthd"
             | "esihplcesitof"
             | "lcesitof" => Self::TimeOfFlight,
-            "esilcesiqq"
+            "quadrupole"
+            | "esilcesiqq"
             | "esilcappiqq"
             | "esiqqq"
             | "lcesiqqq"
@@ -168,15 +172,12 @@ impl FromStr for Instrument {
             | "positivequattroqqq25ev"
             | "positivequattroqqq40ev"
             | "esilcesiq" => Self::Quadrupole,
-            "esiiontrap" | "esilcesiit" | "lcesiiontrap" | "diesiiontrap" | "apciiontrap" => {
-                Self::IonTrap
-            }
-            "esiesiitft" | "esilcesiitft" | "esiapciitft" | "esihybridft" | "lcesihybridft"
-            | "diesihybridft" | "esilcesiqft" | "esiesifticr" | "diesiltqfticr" => {
-                Self::FourierTransform
-            }
-            "esilcesiittof" => Self::IonTrap,
-            "esifabebeb" => Self::MagneticSector,
+            "iontrap" | "esiiontrap" | "esilcesiit" | "lcesiiontrap" | "diesiiontrap"
+            | "apciiontrap" | "esilcesiittof" => Self::IonTrap,
+            "fouriertransform" | "esiesiitft" | "esilcesiitft" | "esiapciitft" | "esihybridft"
+            | "lcesihybridft" | "diesihybridft" | "esilcesiqft" | "esiesifticr"
+            | "diesiltqfticr" => Self::FourierTransform,
+            "magneticsector" | "esifabebeb" => Self::MagneticSector,
             _ => Self::Other,
         })
     }

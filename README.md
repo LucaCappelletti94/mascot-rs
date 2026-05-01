@@ -18,12 +18,15 @@ Path-based loading supports uncompressed MGF plus `.zst`, `.zstd`, `.gz`, and
 
 ## Parsing Documents
 
-Use [`MGFVec`] when parsing a full MGF document.
+Use [`MGFVec`] when parsing a full MGF document. Parsed records can be
+filtered, processed, and written back out with the same extension convention as
+loading: `.mgf.zst` and `.mgf.gz` files are compressed automatically.
 
 ```rust
+# #[cfg(feature = "std")]
+# fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 use mascot_rs::prelude::*;
 
-# fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 let document = r#"BEGIN IONS
 FEATURE_ID=1
 PEPMASS=500.0
@@ -62,12 +65,40 @@ assert_eq!(
     Some(Instrument::Orbitrap)
 );
 assert_eq!(spectra[1].precursor_mz().to_bits(), 600.0_f64.to_bits());
+
+let positive_orbitrap: MGFVec<usize> = spectra
+    .into_iter()
+    .filter(|record| record.ion_mode() == Some(IonMode::Positive))
+    .filter(|record| record.source_instrument() == Some(Instrument::Orbitrap))
+    .collect();
+let total_peaks = positive_orbitrap
+    .spectra()
+    .map(Spectrum::len)
+    .sum::<usize>();
+
+let mut buffer = Vec::new();
+positive_orbitrap.write_to(&mut buffer)?;
+let reparsed: MGFVec<usize> = std::str::from_utf8(&buffer)?.parse()?;
+
+let path = std::env::temp_dir().join(format!(
+    "mascot-rs-parse-write-example-{}.mgf.zst",
+    std::process::id()
+));
+positive_orbitrap.to_path(&path)?;
+let from_disk: MGFVec<usize> = MGFVec::from_path(&path)?;
+std::fs::remove_file(path)?;
+
+assert_eq!(total_peaks, 1);
+assert_eq!(reparsed.len(), 1);
+assert_eq!(from_disk.len(), 1);
 # Ok(())
 # }
+# #[cfg(not(feature = "std"))]
+# fn main() {}
 ```
 
-Files can be parsed directly from a path, including compressed `.mgf.zst` and
-`.mgf.gz` files.
+Files can also be parsed directly from a path, including compressed `.mgf.zst`
+and `.mgf.gz` files.
 
 ```rust
 # #[cfg(feature = "std")]

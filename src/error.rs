@@ -10,11 +10,11 @@ pub type Result<T> = core::result::Result<T, MascotError>;
 /// Errors returned while parsing and validating MGF documents.
 #[derive(Debug, Error)]
 pub enum MascotError {
-    /// A source file could not be read.
+    /// A source or target file could not be accessed.
     #[cfg(feature = "std")]
-    #[error("could not read MGF file \"{path}\": {source}")]
+    #[error("could not access MGF file \"{path}\": {source}")]
     Io {
-        /// Path that could not be read.
+        /// Path that could not be accessed.
         path: String,
         /// Underlying I/O error.
         #[source]
@@ -24,6 +24,14 @@ pub enum MascotError {
     #[cfg(feature = "std")]
     #[error("could not read MGF input stream: {source}")]
     InputIo {
+        /// Underlying I/O error.
+        #[source]
+        source: std::io::Error,
+    },
+    /// A line-oriented output stream could not be written.
+    #[cfg(feature = "std")]
+    #[error("could not write MGF output stream: {source}")]
+    OutputIo {
         /// Underlying I/O error.
         #[source]
         source: std::io::Error,

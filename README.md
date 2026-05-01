@@ -36,6 +36,7 @@ MSLEVEL=2
 SMILES=CCO
 IONMODE=Positive
 SOURCE_INSTRUMENT=LC-ESI-Orbitrap
+NAME=Ethanol example
 100.0 2.0
 SCANS=1
 END IONS
@@ -64,13 +65,24 @@ assert_eq!(
     spectra[0].source_instrument(),
     Some(Instrument::Orbitrap)
 );
+assert_eq!(
+    spectra[0].metadata().arbitrary_metadata_value("NAME"),
+    Some("Ethanol example")
+);
 assert_eq!(spectra[1].precursor_mz().to_bits(), 600.0_f64.to_bits());
 
-let positive_orbitrap: MGFVec<usize> = spectra
+let mut positive_orbitrap: MGFVec<usize> = spectra
     .into_iter()
     .filter(|record| record.ion_mode() == Some(IonMode::Positive))
     .filter(|record| record.source_instrument() == Some(Instrument::Orbitrap))
     .collect();
+positive_orbitrap
+    .iter_mut()
+    .for_each(|record| {
+        let _ = record
+            .metadata_mut()
+            .insert_arbitrary_metadata("EXPORT_BATCH", "curated");
+    });
 let total_peaks = positive_orbitrap
     .spectra()
     .map(Spectrum::len)
@@ -90,6 +102,12 @@ std::fs::remove_file(path)?;
 
 assert_eq!(total_peaks, 1);
 assert_eq!(reparsed.len(), 1);
+assert_eq!(
+    reparsed[0]
+        .metadata()
+        .arbitrary_metadata_value("EXPORT_BATCH"),
+    Some("curated")
+);
 assert_eq!(from_disk.len(), 1);
 # Ok(())
 # }

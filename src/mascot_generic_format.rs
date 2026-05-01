@@ -156,6 +156,11 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
         &self.metadata
     }
 
+    /// Returns mutable metadata for this MGF record.
+    pub const fn metadata_mut(&mut self) -> &mut MascotGenericFormatMetadata<I> {
+        &mut self.metadata
+    }
+
     #[cfg(feature = "std")]
     fn map_output_io(result: std::io::Result<()>) -> Result<()> {
         result.map_err(|source| MascotError::OutputIo { source })
@@ -222,6 +227,9 @@ where
         }
         if let Some(source_instrument) = self.metadata.source_instrument() {
             Self::map_output_io(writeln!(writer, "SOURCE_INSTRUMENT={source_instrument}"))?;
+        }
+        for (key, value) in self.metadata.arbitrary_metadata() {
+            Self::map_output_io(writeln!(writer, "{key}={value}"))?;
         }
         for (mass_divided_by_charge_ratio, fragment_intensity) in self.spectrum.peaks() {
             Self::map_output_io(writeln!(
@@ -644,6 +652,11 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
         self.mascot_generic_formats.iter()
     }
 
+    /// Returns a mutable iterator over the MGF records in the collection.
+    pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, MascotGenericFormat<I, P>> {
+        self.mascot_generic_formats.iter_mut()
+    }
+
     /// Returns the number of MGF records in the collection.
     #[must_use]
     pub const fn len(&self) -> usize {
@@ -741,6 +754,15 @@ impl<'a, I, P: SpectrumFloat> IntoIterator for &'a MGFVec<I, P> {
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
+    }
+}
+
+impl<'a, I, P: SpectrumFloat> IntoIterator for &'a mut MGFVec<I, P> {
+    type IntoIter = core::slice::IterMut<'a, MascotGenericFormat<I, P>>;
+    type Item = &'a mut MascotGenericFormat<I, P>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
     }
 }
 

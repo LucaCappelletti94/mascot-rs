@@ -273,6 +273,8 @@ FILENAME=sample.mzML
 SMILES=CCO
 IONMODE=Positive
 SOURCE_INSTRUMENT=LC-ESI-Orbitrap
+SPECTYPE=CORRELATED MS
+NAME=Example spectrum
 200.0 3.0
 100.0 2.0
 SCANS=1
@@ -296,6 +298,8 @@ END IONS
     let reparsed: MGFVec<usize> = serialized.parse()?;
 
     assert!(serialized.contains("SOURCE_INSTRUMENT=Orbitrap"));
+    assert!(serialized.contains("NAME=Example spectrum"));
+    assert!(serialized.contains("SPECTYPE=CORRELATED MS"));
     assert!(serialized.contains("SCANS=-1"));
     assert_eq!(reparsed.len(), 2);
     assert_eq!(reparsed[0].feature_id(), Some(1));
@@ -310,6 +314,14 @@ END IONS
     );
     assert_eq!(reparsed[0].ion_mode(), Some(IonMode::Positive));
     assert_eq!(reparsed[0].source_instrument(), Some(Instrument::Orbitrap));
+    assert_eq!(
+        reparsed[0].metadata().arbitrary_metadata_value("NAME"),
+        Some("Example spectrum")
+    );
+    assert_eq!(
+        reparsed[0].metadata().arbitrary_metadata_value("SPECTYPE"),
+        Some("CORRELATED MS")
+    );
     assert_eq!(
         reparsed[0]
             .peaks()
@@ -896,6 +908,28 @@ fn test_metadata_parses_optional_source_instrument() -> Result<()> {
 }
 
 #[test]
+fn test_metadata_inserts_arbitrary_metadata() -> Result<()> {
+    let mut metadata = MascotGenericFormatMetadata::new(Some(1), 2, None, 1, None)?;
+
+    let first_previous_value = metadata.insert_arbitrary_metadata("SPECTRUMID", "old-id");
+    let name_previous_value = metadata.insert_arbitrary_metadata("NAME", "Example");
+    let second_previous_value = metadata.insert_arbitrary_metadata("SPECTRUMID", "new-id");
+
+    assert_eq!(first_previous_value, None);
+    assert_eq!(name_previous_value, None);
+    assert_eq!(second_previous_value.as_deref(), Some("old-id"));
+    assert_eq!(
+        metadata.arbitrary_metadata(),
+        &[
+            ("NAME".to_string(), "Example".to_string()),
+            ("SPECTRUMID".to_string(), "new-id".to_string()),
+        ]
+    );
+
+    Ok(())
+}
+
+#[test]
 fn test_metadata_rejects_invalid_smiles() {
     let lines = [
         "BEGIN IONS",
@@ -1080,6 +1114,27 @@ fn test_gnps_library_records_parse_annotation_metadata() -> Result<()> {
         mgf[0].metadata().source_instrument(),
         Some(Instrument::FourierTransform)
     );
+    assert_eq!(
+        mgf[0].metadata().arbitrary_metadata(),
+        &[
+            ("DATACOLLECTOR".to_string(), "J Watrous".to_string()),
+            ("INCHI".to_string(), "N/A".to_string()),
+            ("INCHIAUX".to_string(), "N/A".to_string()),
+            ("LIBRARYQUALITY".to_string(), "3".to_string()),
+            ("NAME".to_string(), "Desferrioxamine B M+H".to_string()),
+            ("ORGANISM".to_string(), "GNPS-LIBRARY".to_string()),
+            ("PI".to_string(), "Dorrestein".to_string()),
+            ("PUBMED".to_string(), "N/A".to_string()),
+            ("SEQ".to_string(), "..".to_string()),
+            ("SPECTRUMID".to_string(), "CCMSLIB00000072100".to_string(),),
+            ("SUBMITUSER".to_string(), "jdwatrou".to_string()),
+            ("TAGS".to_string(), String::new()),
+        ]
+    );
+    assert_eq!(
+        mgf[0].metadata().arbitrary_metadata_value("SPECTRUMID"),
+        Some("CCMSLIB00000072100")
+    );
     assert_eq!(mgf[0].level(), 2);
     assert_eq!(mgf[0].len(), 3);
 
@@ -1109,6 +1164,10 @@ fn test_records_without_feature_id_are_accepted() -> Result<()> {
     assert_eq!(mgf[0].feature_id(), None);
     assert_eq!(mgf[0].metadata().feature_id(), None);
     assert_eq!(mgf[0].source_instrument(), Some(Instrument::TimeOfFlight));
+    assert_eq!(
+        mgf[0].metadata().arbitrary_metadata_value("SPECTRUMID"),
+        Some("CCMSLIB00013748121")
+    );
     assert_eq!(mgf[0].len(), 2);
 
     Ok(())

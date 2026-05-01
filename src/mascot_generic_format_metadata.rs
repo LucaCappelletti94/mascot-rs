@@ -1,4 +1,7 @@
-use alloc::string::{String, ToString};
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 use core::{fmt, str::FromStr};
 
 use crate::prelude::*;
@@ -196,6 +199,7 @@ pub struct MascotGenericFormatMetadata<I> {
     smiles: Option<SmilesMetadata>,
     ion_mode: Option<IonMode>,
     source_instrument: Option<Instrument>,
+    arbitrary_metadata: Vec<(String, String)>,
 }
 
 #[derive(Debug, Clone)]
@@ -205,6 +209,32 @@ impl SmilesMetadata {
     const fn as_smiles(&self) -> &Smiles {
         &self.0
     }
+}
+
+pub(crate) fn insert_sorted_arbitrary_metadata(
+    arbitrary_metadata: &mut Vec<(String, String)>,
+    key: String,
+    value: String,
+) -> Option<String> {
+    match arbitrary_metadata
+        .binary_search_by(|(observed_key, _)| observed_key.as_str().cmp(key.as_str()))
+    {
+        Ok(index) => Some(core::mem::replace(&mut arbitrary_metadata[index].1, value)),
+        Err(index) => {
+            arbitrary_metadata.insert(index, (key, value));
+            None
+        }
+    }
+}
+
+fn sorted_arbitrary_metadata(
+    arbitrary_metadata: impl IntoIterator<Item = (String, String)>,
+) -> Vec<(String, String)> {
+    let mut sorted_metadata = Vec::new();
+    for (key, value) in arbitrary_metadata {
+        let _ = insert_sorted_arbitrary_metadata(&mut sorted_metadata, key, value);
+    }
+    sorted_metadata
 }
 
 impl<I: Copy> MascotGenericFormatMetadata<I> {
@@ -428,6 +458,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
             smiles: smiles.map(SmilesMetadata),
             ion_mode,
             source_instrument: None,
+            arbitrary_metadata: Vec::new(),
         })
     }
 
@@ -463,6 +494,78 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
         self
     }
 
+    /// Returns this metadata with arbitrary MGF header metadata set.
+    ///
+    /// The entries are stored sorted by key. Repeated keys keep the last value.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mascot_rs::prelude::*;
+    ///
+    /// let metadata: MascotGenericFormatMetadata<usize> =
+    ///     MascotGenericFormatMetadata::new(
+    ///         Some(1),
+    ///         2,
+    ///         None,
+    ///         1,
+    ///         None,
+    ///     ).unwrap()
+    ///     .with_arbitrary_metadata(vec![
+    ///         ("NAME".to_string(), "Ethanol".to_string()),
+    ///         ("SPECTRUMID".to_string(), "CCMSLIB00000000001".to_string()),
+    ///     ]);
+    ///
+    /// assert_eq!(
+    ///     metadata.arbitrary_metadata_value("NAME"),
+    ///     Some("Ethanol")
+    /// );
+    /// ```
+    #[must_use]
+    pub fn with_arbitrary_metadata(mut self, arbitrary_metadata: Vec<(String, String)>) -> Self {
+        self.arbitrary_metadata = sorted_arbitrary_metadata(arbitrary_metadata);
+        self
+    }
+
+    /// Inserts or replaces one arbitrary MGF header metadata entry.
+    ///
+    /// The entries are kept sorted by key.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mascot_rs::prelude::*;
+    ///
+    /// let mut metadata: MascotGenericFormatMetadata<usize> =
+    ///     MascotGenericFormatMetadata::new(
+    ///         Some(1),
+    ///         2,
+    ///         None,
+    ///         1,
+    ///         None,
+    ///     ).unwrap();
+    ///
+    /// assert_eq!(
+    ///     metadata.insert_arbitrary_metadata("NAME", "Ethanol"),
+    ///     None
+    /// );
+    /// assert_eq!(
+    ///     metadata.insert_arbitrary_metadata("NAME", "Updated ethanol"),
+    ///     Some("Ethanol".to_string())
+    /// );
+    /// assert_eq!(
+    ///     metadata.arbitrary_metadata_value("NAME"),
+    ///     Some("Updated ethanol")
+    /// );
+    /// ```
+    pub fn insert_arbitrary_metadata(
+        &mut self,
+        key: impl Into<String>,
+        value: impl Into<String>,
+    ) -> Option<String> {
+        insert_sorted_arbitrary_metadata(&mut self.arbitrary_metadata, key.into(), value.into())
+    }
+
     /// Returns the feature ID of the metadata, if present.
     pub const fn feature_id(&self) -> Option<I> {
         self.feature_id
@@ -491,6 +594,21 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// Returns the normalized instrument metadata, if present.
     pub const fn source_instrument(&self) -> Option<Instrument> {
         self.source_instrument
+    }
+
+    /// Returns arbitrary MGF header metadata sorted by key.
+    #[must_use]
+    pub const fn arbitrary_metadata(&self) -> &[(String, String)] {
+        self.arbitrary_metadata.as_slice()
+    }
+
+    /// Returns an arbitrary MGF header metadata value by key.
+    #[must_use]
+    pub fn arbitrary_metadata_value(&self, key: &str) -> Option<&str> {
+        self.arbitrary_metadata
+            .binary_search_by(|(observed_key, _)| observed_key.as_str().cmp(key))
+            .ok()
+            .map(|index| self.arbitrary_metadata[index].1.as_str())
     }
 
     /// Returns the filename of the metadata.

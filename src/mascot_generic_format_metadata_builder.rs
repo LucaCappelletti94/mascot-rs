@@ -1,7 +1,11 @@
-use alloc::string::{String, ToString};
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 use core::ops::Add;
 use core::{fmt::Debug, str::FromStr};
 
+use crate::mascot_generic_format_metadata::insert_sorted_arbitrary_metadata;
 use crate::prelude::*;
 
 /// Builder for metadata parsed from MGF header lines.
@@ -21,6 +25,7 @@ pub struct MascotGenericFormatMetadataBuilder<I, P: SpectrumFloat = f64> {
     smiles: Option<Smiles>,
     ion_mode: Option<IonMode>,
     source_instrument: Option<Instrument>,
+    arbitrary_metadata: Vec<(String, String)>,
 }
 
 impl<I, P: SpectrumFloat> Default for MascotGenericFormatMetadataBuilder<I, P> {
@@ -40,6 +45,7 @@ impl<I, P: SpectrumFloat> Default for MascotGenericFormatMetadataBuilder<I, P> {
             smiles: None,
             ion_mode: None,
             source_instrument: None,
+            arbitrary_metadata: Vec::new(),
         }
     }
 }
@@ -134,7 +140,8 @@ impl<
             self.smiles,
             self.ion_mode,
         )?
-        .with_source_instrument(self.source_instrument);
+        .with_source_instrument(self.source_instrument)
+        .with_arbitrary_metadata(self.arbitrary_metadata);
         let precursor_mz = self.precursor_mz.ok_or(MascotError::MissingField {
             builder: "MascotGenericFormat",
             field: "precursor_mz",
@@ -492,6 +499,18 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
         }
     }
 
+    pub(super) fn digest_arbitrary_metadata_line(&mut self, line: &str) -> Result<()> {
+        let (key, value) = line
+            .split_once('=')
+            .ok_or_else(|| Self::unsupported_merged_scan_line_error(line))?;
+        let _ = insert_sorted_arbitrary_metadata(
+            &mut self.arbitrary_metadata,
+            key.to_string(),
+            value.to_string(),
+        );
+        Ok(())
+    }
+
     fn is_merged_scan_metadata_line(line: &str) -> bool {
         line.starts_with("MERGED_SCANS=") || line.starts_with("MERGED_STATS=")
     }
@@ -616,7 +635,7 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
     /// * `line` - The line to parse.
     ///
     /// # Examples
-    /// The parser should be able to parse any of the following lines:
+    /// The known-field parser should be able to parse any of the following lines:
     /// feature IDs, precursor m/z values, scan ids, charges, retention times,
     /// filenames, SMILES, ion-mode metadata, source-instrument metadata,
     /// partial-read scan markers, and merged-scan metadata lines.
@@ -632,6 +651,11 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
             || line.starts_with("SOURCE_INSTRUMENT=")
             || line.starts_with("CHARGE=")
             || Self::is_merged_scan_metadata_line(line)
+    }
+
+    /// Returns whether the line can be stored as arbitrary metadata.
+    pub(super) fn can_parse_arbitrary_metadata_line(line: &str) -> bool {
+        line.contains('=')
     }
 
     /// Returns whether the parser can build a [`MascotGenericFormatMetadata`] from the lines
@@ -789,6 +813,39 @@ mod tests {
         assert_eq!(
             mascot_generic_format_metadata.source_instrument(),
             Some(Instrument::Orbitrap)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn stores_arbitrary_metadata_sorted_by_key() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+
+        parser.digest_line("FEATURE_ID=1")?;
+        parser.digest_line("PEPMASS=381.0795")?;
+        parser.digest_line("MSLEVEL=2")?;
+        parser.digest_line("SCANS=1")?;
+        parser.digest_line("CHARGE=1")?;
+        parser.digest_arbitrary_metadata_line("SPECTRUMID=CCMSLIB00000000001")?;
+        parser.digest_arbitrary_metadata_line("NAME=Old name")?;
+        parser.digest_arbitrary_metadata_line("NAME=New name")?;
+
+        let (mascot_generic_format_metadata, _precursor_mz) = parser.build()?;
+
+        assert_eq!(
+            mascot_generic_format_metadata.arbitrary_metadata(),
+            &[
+                ("NAME".to_string(), "New name".to_string()),
+                ("SPECTRUMID".to_string(), "CCMSLIB00000000001".to_string(),),
+            ]
+        );
+        assert_eq!(
+            mascot_generic_format_metadata.arbitrary_metadata_value("NAME"),
+            Some("New name")
+        );
+        assert_eq!(
+            mascot_generic_format_metadata.arbitrary_metadata_value("UNKNOWN"),
+            None
         );
         Ok(())
     }
@@ -1058,6 +1115,7 @@ mod tests {
             smiles: None,
             ion_mode: None,
             source_instrument: None,
+            arbitrary_metadata: Vec::new(),
         };
 
         assert!(matches!(

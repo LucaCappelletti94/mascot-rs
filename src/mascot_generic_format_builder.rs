@@ -52,14 +52,6 @@ impl<I, P: SpectrumFloat> MascotGenericFormatBuilder<I, P>
 where
     I: Copy + Eq + Debug + Add<Output = I> + FromStr + From<usize>,
 {
-    fn is_spectrum_type_line(line: &str) -> bool {
-        line.starts_with("SPECTYPE=CORRELATED MS")
-    }
-
-    fn is_annotation_line(line: &str) -> bool {
-        line.contains('=')
-    }
-
     fn digest_peak_line(&mut self, line: &str) -> Result<()> {
         let mut split = line.split_whitespace();
 
@@ -180,12 +172,12 @@ where
             self.section_open = false;
         } else if MascotGenericFormatMetadataBuilder::<I, P>::can_parse_line(line) {
             self.metadata_builder.digest_line(line)?;
-        } else if Self::is_spectrum_type_line(line) {
-            return Ok(());
+        } else if self.section_open
+            && MascotGenericFormatMetadataBuilder::<I, P>::can_parse_arbitrary_metadata_line(line)
+        {
+            self.metadata_builder.digest_arbitrary_metadata_line(line)?;
         } else if self.section_open {
-            if !Self::is_annotation_line(line) {
-                self.digest_peak_line(line)?;
-            }
+            self.digest_peak_line(line)?;
         } else {
             return Err(MascotError::LineOutsideIonSection {
                 line: line.to_string(),

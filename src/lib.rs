@@ -36,4 +36,5 @@ pub mod prelude {
     pub use mem_dbg::{DbgFlags, MemDbg};
     #[cfg(feature = "mem_size")]
     pub use mem_dbg::{MemSize, SizeFlags};
+    pub use smiles_parser::prelude::Smiles;
 }

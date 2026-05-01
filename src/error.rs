@@ -65,6 +65,14 @@ pub enum MascotError {
         /// Original input line.
         line: String,
     },
+    /// A `SMILES` metadata line could not be parsed.
+    #[error("could not parse SMILES from line \"{line}\": {error}")]
+    InvalidSmiles {
+        /// Original input line.
+        line: String,
+        /// Underlying SMILES parser error.
+        error: smiles_parser::prelude::SmilesErrorWithSpan,
+    },
     /// A line provided a non-finite floating-point value.
     #[error("line \"{line}\" contains a non-finite {field}")]
     NonFiniteField {

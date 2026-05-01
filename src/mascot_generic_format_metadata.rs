@@ -12,10 +12,22 @@ pub struct MascotGenericFormatMetadata<I> {
     retention_time: Option<f64>,
     charge: i8,
     filename: Option<String>,
+    smiles: Option<SmilesMetadata>,
+}
+
+#[derive(Debug, Clone)]
+struct SmilesMetadata(Smiles);
+
+impl SmilesMetadata {
+    const fn as_smiles(&self) -> &Smiles {
+        &self.0
+    }
 }
 
 impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// Creates a new [`MascotGenericFormatMetadata`].
+    ///
+    /// Use [`Self::new_with_smiles`] when SMILES metadata is available.
     ///
     /// # Arguments
     /// * `feature_id` - The feature ID of the metadata.
@@ -56,6 +68,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// assert_eq!(mascot_generic_format_metadata.retention_time(), retention_time);
     /// assert_eq!(mascot_generic_format_metadata.charge(), charge);
     /// assert_eq!(mascot_generic_format_metadata.filename(), filename.as_deref());
+    /// assert!(mascot_generic_format_metadata.smiles().is_none());
     ///
     /// assert!(
     ///     MascotGenericFormatMetadata::new(
@@ -88,13 +101,56 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// );
     ///
     /// ```
-    ///
     pub fn new(
         feature_id: I,
         level: u8,
         retention_time: Option<f64>,
         charge: i8,
         filename: Option<String>,
+    ) -> Result<Self> {
+        Self::new_with_smiles(feature_id, level, retention_time, charge, filename, None)
+    }
+
+    /// Creates a new [`MascotGenericFormatMetadata`] with optional SMILES
+    /// metadata.
+    ///
+    /// # Arguments
+    /// * `feature_id` - The feature ID of the metadata.
+    /// * `level` - The MS fragmentation level.
+    /// * `retention_time` - The retention time of the metadata, if present.
+    /// * `charge` - The precursor charge of the metadata.
+    /// * `filename` - The filename of the metadata.
+    /// * `smiles` - The parsed SMILES metadata, if present.
+    ///
+    /// # Errors
+    /// * If `level` is zero.
+    /// * If `retention_time` is present but not finite and strictly positive.
+    /// * If `filename` is empty.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mascot_rs::prelude::*;
+    ///
+    /// let smiles: Smiles = "CCO".parse().unwrap();
+    /// let metadata = MascotGenericFormatMetadata::new_with_smiles(
+    ///     1_usize,
+    ///     2,
+    ///     Some(37.083),
+    ///     1,
+    ///     None,
+    ///     Some(smiles),
+    /// ).unwrap();
+    ///
+    /// assert_eq!(metadata.smiles().map(ToString::to_string).as_deref(), Some("CCO"));
+    /// ```
+    pub fn new_with_smiles(
+        feature_id: I,
+        level: u8,
+        retention_time: Option<f64>,
+        charge: i8,
+        filename: Option<String>,
+        smiles: Option<Smiles>,
     ) -> Result<Self> {
         if level == 0 {
             return Err(MascotError::NonPositiveField {
@@ -131,6 +187,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
             retention_time,
             charge,
             filename,
+            smiles: smiles.map(SmilesMetadata),
         })
     }
 
@@ -158,4 +215,31 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     pub fn filename(&self) -> Option<&str> {
         self.filename.as_deref()
     }
+
+    /// Returns the parsed SMILES metadata.
+    pub const fn smiles(&self) -> Option<&Smiles> {
+        match self.smiles.as_ref() {
+            Some(smiles) => Some(smiles.as_smiles()),
+            None => None,
+        }
+    }
 }
+
+#[cfg(feature = "mem_size")]
+impl mem_dbg::FlatType for SmilesMetadata {
+    type Flat = mem_dbg::False;
+}
+
+#[cfg(feature = "mem_size")]
+impl mem_dbg::MemSize for SmilesMetadata {
+    fn mem_size_rec(
+        &self,
+        _flags: mem_dbg::SizeFlags,
+        _refs: &mut mem_dbg::HashMap<usize, usize>,
+    ) -> usize {
+        core::mem::size_of::<Self>()
+    }
+}
+
+#[cfg(feature = "mem_dbg")]
+impl mem_dbg::MemDbgImpl for SmilesMetadata {}

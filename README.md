@@ -29,6 +29,7 @@ PEPMASS=500.0
 CHARGE=1
 RTINSECONDS=10.0
 MSLEVEL=2
+SMILES=CCO
 100.0 2.0
 SCANS=1
 END IONS
@@ -48,6 +49,10 @@ let spectra: MGFVec<usize> = document.parse()?;
 
 assert_eq!(spectra.len(), 2);
 assert_eq!(spectra[0].feature_id(), 1);
+assert_eq!(
+    spectra[0].metadata().smiles().map(ToString::to_string).as_deref(),
+    Some("CCO")
+);
 assert_eq!(spectra[1].precursor_mz().to_bits(), 600.0_f64.to_bits());
 # Ok(())
 # }

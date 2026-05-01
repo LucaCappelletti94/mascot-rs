@@ -5,7 +5,7 @@ use core::{fmt::Debug, str::FromStr};
 use crate::prelude::*;
 
 /// Builder for metadata parsed from MGF header lines.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct MascotGenericFormatMetadataBuilder<I, P: SpectrumFloat = f64> {
     feature_id: Option<I>,
     level: Option<u8>,
@@ -18,6 +18,7 @@ pub struct MascotGenericFormatMetadataBuilder<I, P: SpectrumFloat = f64> {
     merged_scans_removed_due_to_low_cosine: Option<I>,
     merged_total_scan_count: Option<I>,
     filename: Option<String>,
+    smiles: Option<Smiles>,
 }
 
 impl<I, P: SpectrumFloat> Default for MascotGenericFormatMetadataBuilder<I, P> {
@@ -34,6 +35,7 @@ impl<I, P: SpectrumFloat> Default for MascotGenericFormatMetadataBuilder<I, P> {
             merged_scans_removed_due_to_low_cosine: None,
             merged_total_scan_count: None,
             filename: None,
+            smiles: None,
         }
     }
 }
@@ -113,7 +115,7 @@ impl<
     pub(super) fn build(self) -> Result<(MascotGenericFormatMetadata<I>, P)> {
         self.validate_merged_scan_metadata()?;
 
-        let metadata = MascotGenericFormatMetadata::new(
+        let metadata = MascotGenericFormatMetadata::new_with_smiles(
             self.feature_id.ok_or(MascotError::MissingField {
                 builder: "MascotGenericFormatMetadata",
                 field: "feature_id",
@@ -128,6 +130,7 @@ impl<
                 field: "charge",
             })?,
             self.filename,
+            self.smiles,
         )?;
         let precursor_mz = self.precursor_mz.ok_or(MascotError::MissingField {
             builder: "MascotGenericFormat",
@@ -394,6 +397,41 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
         }
     }
 
+    const fn missing_smiles_value(stripped: &str) -> bool {
+        stripped.is_empty()
+            || stripped.eq_ignore_ascii_case("N/A")
+            || stripped.eq_ignore_ascii_case("NA")
+            || stripped.eq_ignore_ascii_case("NONE")
+            || stripped.eq_ignore_ascii_case("NULL")
+    }
+
+    fn digest_smiles_line(&mut self, stripped: &str, line: &str) -> Result<()> {
+        let stripped = stripped.trim();
+        if Self::missing_smiles_value(stripped) {
+            return Ok(());
+        }
+
+        let smiles = stripped
+            .parse::<Smiles>()
+            .map_err(|error| MascotError::InvalidSmiles {
+                line: line.to_string(),
+                error,
+            })?;
+        match self.smiles.as_ref() {
+            Some(observed_smiles) if observed_smiles.to_string() != smiles.to_string() => {
+                Err(MascotError::ConflictingField {
+                    field: "smiles",
+                    line: line.to_string(),
+                })
+            }
+            Some(_) => Ok(()),
+            None => {
+                self.smiles = Some(smiles);
+                Ok(())
+            }
+        }
+    }
+
     fn is_merged_scan_metadata_line(line: &str) -> bool {
         line.starts_with("MERGED_SCANS=") || line.starts_with("MERGED_STATS=")
     }
@@ -520,7 +558,8 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
     /// # Examples
     /// The parser should be able to parse any of the following lines:
     /// feature IDs, precursor m/z values, scan ids, charges, retention times,
-    /// filenames, partial-read scan markers, and merged-scan metadata lines.
+    /// filenames, SMILES, partial-read scan markers, and merged-scan metadata
+    /// lines.
     pub(super) fn can_parse_line(line: &str) -> bool {
         line.starts_with("FEATURE_ID=")
             || line.starts_with("PEPMASS=")
@@ -528,6 +567,7 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
             || line.starts_with("SCANS=")
             || line.starts_with("RTINSECONDS=")
             || line.starts_with("FILENAME=")
+            || line.starts_with("SMILES=")
             || line.starts_with("CHARGE=")
             || Self::is_merged_scan_metadata_line(line)
     }
@@ -580,6 +620,10 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
             return self.digest_filename_line(stripped, line);
         }
 
+        if let Some(stripped) = line.strip_prefix("SMILES=") {
+            return self.digest_smiles_line(stripped, line);
+        }
+
         if Self::is_merged_scan_metadata_line(line) {
             return self.digest_merge_scans_line(line);
         }
@@ -612,6 +656,8 @@ mod tests {
             "CHARGE=1-",
             "RTINSECONDS=37.083",
             "FILENAME=20220513_PMA_DBGI_01_04_003.mzML",
+            "SMILES=CCO",
+            "SMILES=N/A",
             "SCANS=-1",
         ] {
             assert!(MascotGenericFormatMetadataBuilder::<usize>::can_parse_line(
@@ -635,6 +681,7 @@ mod tests {
         )?;
         parser.digest_line("RTINSECONDS=37.083")?;
         parser.digest_line("FILENAME=20220513_PMA_DBGI_01_04_003.mzML")?;
+        parser.digest_line("SMILES=CCO")?;
 
         let (mascot_generic_format_metadata, precursor_mz) = parser.build()?;
 
@@ -651,6 +698,13 @@ mod tests {
         assert_eq!(
             mascot_generic_format_metadata.filename(),
             Some("20220513_PMA_DBGI_01_04_003.mzML")
+        );
+        assert_eq!(
+            mascot_generic_format_metadata
+                .smiles()
+                .map(ToString::to_string)
+                .as_deref(),
+            Some("CCO")
         );
         Ok(())
     }
@@ -742,6 +796,14 @@ mod tests {
     }
 
     #[test]
+    fn rejects_conflicting_smiles() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        parser.digest_line("SMILES=CCO")?;
+        assert!(parser.digest_line("SMILES=CCC").is_err());
+        Ok(())
+    }
+
+    #[test]
     fn accepts_repeated_identical_metadata_lines() -> Result<()> {
         let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
 
@@ -760,6 +822,9 @@ mod tests {
             "RTINSECONDS=37.083",
             "FILENAME=20220513_PMA_DBGI_01_04_003.mzML",
             "FILENAME=20220513_PMA_DBGI_01_04_003.mzML",
+            "SMILES=CCO",
+            "SMILES=CCO",
+            "SMILES=N/A",
         ] {
             parser.digest_line(line)?;
         }
@@ -787,6 +852,7 @@ mod tests {
             "RTINSECONDS=not-a-number",
             "RTINSECONDS=NaN",
             "RTINSECONDS=0",
+            "SMILES=C(",
             "MERGED_SCANS=not-a-number",
             "MERGED_STATS=not-a-fraction",
             "MERGED_STATS=1 / 1",
@@ -875,6 +941,7 @@ mod tests {
             merged_scans_removed_due_to_low_cosine: Some(0),
             merged_total_scan_count: Some(1),
             filename: None,
+            smiles: None,
         };
 
         assert!(matches!(

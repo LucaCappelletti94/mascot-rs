@@ -34,6 +34,7 @@ fn test_from_reader_reports_line_context() {
         "CHARGE=1\n",
         "RTINSECONDS=10.0\n",
         "MSLEVEL=2\n",
+        "SMILES=CCO\n",
         "100.0 2.0\n",
         "SCANS=1\n",
         "END IONS\n",
@@ -437,6 +438,7 @@ fn test_spectrum_access_uses_standard_traits() -> Result<()> {
         "CHARGE=1",
         "RTINSECONDS=10.0",
         "MSLEVEL=2",
+        "SMILES=CCO",
         "100.0 2.0",
         "200.0 3.0",
         "SCANS=1",
@@ -488,6 +490,56 @@ fn test_spectrum_access_uses_standard_traits() -> Result<()> {
     assert_eq!(spectrum.intensity_nth(1).to_bits(), 3.0_f64.to_bits());
 
     Ok(())
+}
+
+#[test]
+fn test_metadata_parses_optional_smiles() -> Result<()> {
+    let lines = [
+        "BEGIN IONS",
+        "FEATURE_ID=1",
+        "PEPMASS=500.0",
+        "CHARGE=1",
+        "RTINSECONDS=10.0",
+        "MSLEVEL=2",
+        "SMILES=CCO",
+        "100.0 2.0",
+        "SCANS=1",
+        "END IONS",
+    ];
+
+    let mgf: MGFVec<usize> = MGFVec::try_from_iter(lines)?;
+
+    assert_eq!(
+        mgf[0]
+            .metadata()
+            .smiles()
+            .map(ToString::to_string)
+            .as_deref(),
+        Some("CCO")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn test_metadata_rejects_invalid_smiles() {
+    let lines = [
+        "BEGIN IONS",
+        "FEATURE_ID=1",
+        "PEPMASS=500.0",
+        "CHARGE=1",
+        "RTINSECONDS=10.0",
+        "MSLEVEL=2",
+        "SMILES=C(",
+        "100.0 2.0",
+        "SCANS=1",
+        "END IONS",
+    ];
+
+    assert!(matches!(
+        MGFVec::<usize>::try_from_iter(lines),
+        Err(MascotError::InvalidSmiles { .. })
+    ));
 }
 
 #[test]
@@ -597,7 +649,13 @@ fn test_memory_footprint_is_available_from_prelude() -> Result<()> {
 
     assert!(size >= std::mem::size_of_val(&mgf));
     assert!(capacity_size >= size);
+    let metadata_without_smiles =
+        MascotGenericFormatMetadata::new(1_usize, 2, Some(10.0), 1, None)?;
     assert!(metadata_size >= std::mem::size_of_val(mgf[0].metadata()));
+    assert_eq!(
+        metadata_size,
+        metadata_without_smiles.mem_size(SizeFlags::default())
+    );
     assert!(builder_size >= std::mem::size_of_val(&builder));
     assert!(mgf
         .mem_dbg_depth_on(&mut report, 2, DbgFlags::default())
@@ -642,6 +700,7 @@ fn test_gnps_library_records_parse_annotation_metadata() -> Result<()> {
     assert_eq!(mgf.len(), 1);
     assert_eq!(mgf[0].feature_id(), 1);
     assert_eq!(mgf[0].metadata().retention_time(), None);
+    assert!(mgf[0].metadata().smiles().is_none());
     assert_eq!(mgf[0].level(), 2);
     assert_eq!(mgf[0].len(), 3);
 

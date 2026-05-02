@@ -1454,3 +1454,112 @@ fn test_gnps_builder_rejects_empty_file_name() {
         Err(MascotError::EmptyFilename)
     ));
 }
+
+#[test]
+fn test_gems_a10_builder_defaults_to_published_parts() -> Result<()> {
+    let builder = MGFVec::<usize>::gems_a10();
+
+    assert_eq!(builder.record_id(), GEMS_A10_ZENODO_RECORD_ID);
+    assert_eq!(GEMS_A10_ZENODO_DOI, "10.5281/zenodo.19980668");
+    assert_eq!(
+        builder.selected_file_keys().len(),
+        usize::from(GEMS_A10_MGF_PART_COUNT)
+    );
+    assert_eq!(
+        builder.selected_file_keys().first().map(String::as_str),
+        Some("GeMS_A10.mgf.part-00000.mgf.zst")
+    );
+    assert_eq!(
+        builder.selected_file_keys().last().map(String::as_str),
+        Some("GeMS_A10.mgf.part-00023.mgf.zst")
+    );
+    assert_eq!(
+        GemsA10Builder::<f32>::part_file_key(9)?,
+        "GeMS_A10.mgf.part-00009.mgf.zst"
+    );
+    assert!(matches!(
+        MGFVec::<usize>::gems_a10().part(GEMS_A10_MGF_PART_COUNT),
+        Err(MascotError::InvalidGemsA10Part { .. })
+    ));
+
+    Ok(())
+}
+
+#[test]
+fn test_gems_a10_builder_loads_existing_downloaded_file() -> Result<()> {
+    let target_directory =
+        std::env::temp_dir().join(format!("mascot-rs-gems-a10-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&target_directory);
+    std::fs::create_dir_all(&target_directory).map_err(|source| MascotError::Io {
+        path: target_directory.display().to_string(),
+        source,
+    })?;
+    let builder = MGFVec::<usize, f32>::gems_a10()
+        .target_directory(&target_directory)
+        .file_key("cached.mgf")
+        .verbosity(GemsA10Verbosity::Indicatif)
+        .force_download(false);
+    let path = builder.path_for_file_key("cached.mgf");
+    let document = r"BEGIN IONS
+PEPMASS=0.0
+CHARGE=1
+MSLEVEL=2
+FEATURE_ID=1
+SCANS=1
+100.0 2.0
+END IONS
+BEGIN IONS
+PEPMASS=250.0
+CHARGE=1
+MSLEVEL=2
+FEATURE_ID=2
+SCANS=2
+100.0 2.0
+END IONS
+";
+    std::fs::write(&path, document).map_err(|source| MascotError::Io {
+        path: path.display().to_string(),
+        source,
+    })?;
+    let expected_bytes = document.len() as u64;
+
+    let gems_a10_load = pollster::block_on(builder.load())?;
+    let _ = std::fs::remove_dir_all(&target_directory);
+
+    assert!(gems_a10_load.mem_size(SizeFlags::default()) >= std::mem::size_of_val(&gems_a10_load));
+    assert_eq!(gems_a10_load.spectra().len(), 1);
+    assert_eq!(gems_a10_load.as_ref().len(), 1);
+    assert_eq!(gems_a10_load.skipped_records(), 1);
+    assert_eq!(gems_a10_load.files().len(), 1);
+    assert_eq!(gems_a10_load.files()[0].key(), "cached.mgf");
+    assert_eq!(gems_a10_load.files()[0].path(), path.as_path());
+    assert_eq!(gems_a10_load.files()[0].bytes(), expected_bytes);
+    assert_eq!(gems_a10_load.bytes(), expected_bytes);
+    assert_eq!(
+        gems_a10_load.spectra()[0].precursor_mz().to_bits(),
+        250.0_f32.to_bits()
+    );
+    let spectra = gems_a10_load.into_spectra();
+    assert_eq!(spectra.len(), 1);
+
+    Ok(())
+}
+
+#[test]
+fn test_gems_a10_builder_rejects_empty_file_selection() {
+    assert!(matches!(
+        pollster::block_on(
+            MGFVec::<usize>::gems_a10()
+                .file_keys(core::iter::empty::<&str>())
+                .load()
+        ),
+        Err(MascotError::MissingField {
+            builder: "GemsA10Builder",
+            field: "file_keys"
+        })
+    ));
+    assert!(matches!(
+        pollster::block_on(MGFVec::<usize>::gems_a10().file_key("").load()),
+        Err(MascotError::EmptyFilename)
+    ));
+}

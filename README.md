@@ -293,6 +293,54 @@ assert_eq!(load.skipped_records(), 1);
 # fn main() {}
 ```
 
+## GeMS-A10
+
+The GeMS-A10 helper is exposed through `MGFVec::<usize, P>::gems_a10()`.
+By default it targets Zenodo record `19980668` and the 24 compressed MGF part
+files. Uncached downloads use `zenodo-rs` and should be awaited inside a Tokio
+runtime. The example below writes a small cached file first, so the builder
+loads the local file and does not perform a network request.
+
+```rust
+# #[cfg(feature = "std")]
+# fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+use mascot_rs::prelude::*;
+
+let target_directory =
+    std::env::temp_dir().join(format!("mascot-rs-gems-a10-readme-{}", std::process::id()));
+let _ = std::fs::remove_dir_all(&target_directory);
+std::fs::create_dir_all(&target_directory)?;
+
+std::fs::write(
+    target_directory.join("cached-gems-a10.mgf"),
+    r"BEGIN IONS
+PEPMASS=500.0
+CHARGE=1
+MSLEVEL=2
+FEATURE_ID=1
+SCANS=1
+100.0 2.0
+END IONS
+",
+)?;
+
+let load = pollster::block_on(
+    MGFVec::<usize, f32>::gems_a10()
+        .target_directory(&target_directory)
+        .file_key("cached-gems-a10.mgf")
+        .load(),
+)?;
+
+std::fs::remove_dir_all(&target_directory)?;
+
+assert_eq!(load.spectra().len(), 1);
+assert_eq!(load.files()[0].key(), "cached-gems-a10.mgf");
+# Ok(())
+# }
+# #[cfg(not(feature = "std"))]
+# fn main() {}
+```
+
 [`MascotError::SingleRecordExpected`]: crate::error::MascotError::SingleRecordExpected
 [`MGFVec`]: crate::mascot_generic_format::MGFVec
 [`MascotGenericFormat`]: crate::mascot_generic_format::MascotGenericFormat

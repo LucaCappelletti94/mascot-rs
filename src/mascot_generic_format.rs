@@ -22,6 +22,8 @@ use mass_spectrometry::prelude::{
 
 use crate::error::{MascotError, Result};
 #[cfg(feature = "std")]
+use crate::gems_a10::GemsA10Builder;
+#[cfg(feature = "std")]
 use crate::gnps::GNPSBuilder;
 use crate::mascot_generic_format_builder::MascotGenericFormatBuilder;
 use crate::mascot_generic_format_metadata::{Instrument, IonMode, MascotGenericFormatMetadata};
@@ -1052,6 +1054,12 @@ where
 
 #[cfg(feature = "std")]
 impl<P: SpectrumFloat> MGFVec<usize, P> {
+    /// Returns a builder for the converted `GeMS-A10` MGF dataset on Zenodo.
+    #[must_use]
+    pub fn gems_a10() -> GemsA10Builder<P> {
+        GemsA10Builder::default()
+    }
+
     /// Returns a builder for the GNPS public MGF spectral library.
     #[must_use]
     pub fn gnps() -> GNPSBuilder<P> {

@@ -57,6 +57,24 @@ pub enum MascotError {
         #[source]
         source: Box<ureq::Error>,
     },
+    /// A Zenodo operation failed while retrieving a dataset.
+    #[cfg(feature = "std")]
+    #[error("Zenodo {operation} failed: {source}")]
+    Zenodo {
+        /// Operation being attempted.
+        operation: String,
+        /// Underlying Zenodo error.
+        #[source]
+        source: Box<zenodo_rs::ZenodoError>,
+    },
+    /// A `GeMS-A10` part number is outside the known published range.
+    #[error("GeMS-A10 part {part} is out of range; valid parts are 0..{part_count}")]
+    InvalidGemsA10Part {
+        /// Requested part number.
+        part: u8,
+        /// Number of published MGF parts.
+        part_count: u8,
+    },
     /// A builder is missing a required field.
     #[error("could not build {builder}: {field} is missing")]
     MissingField {

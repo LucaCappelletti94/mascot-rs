@@ -22,6 +22,7 @@ mem_dbg = { version = "0.4", default-features = false, features = ["derive", "ha
 smiles-parser = { git = "https://github.com/earth-metabolome-initiative/smiles-parser", rev = "8e8f5195979efba0cf12caf6c497a8654fc0bb9e", default-features = false }
 thiserror = { version = "2.0", default-features = false }
 ureq = { version = "3.3", optional = true }
+zenodo-rs = { version = "0.1.6", default-features = false, features = ["checksums", "rustls-tls"], optional = true }
 zstd = { version = "0.13", default-features = false, optional = true }
 
 [dev-dependencies]
@@ -34,6 +35,7 @@ std = [
     "dep:flate2",
     "dep:indicatif",
     "dep:ureq",
+    "dep:zenodo-rs",
     "dep:zstd",
     "mass_spectrometry/std",
     "mem_dbg?/std",

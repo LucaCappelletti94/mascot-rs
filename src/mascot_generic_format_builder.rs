@@ -3,7 +3,11 @@ use core::{fmt::Debug, marker::PhantomData, ops::Add, str::FromStr};
 
 use crate::mascot_generic_format::MascotGenericFormat;
 use crate::mascot_generic_format_metadata_builder::MascotGenericFormatMetadataBuilder;
+use crate::numeric;
 use crate::prelude::*;
+
+const MZ_FIELD: &str = "mass divided by charge ratio";
+const INTENSITY_FIELD: &str = "fragment intensity";
 
 #[derive(Debug, Clone)]
 /// A builder for [`MascotGenericFormat`].
@@ -24,6 +28,12 @@ impl<I, P: SpectrumFloat> Default for MascotGenericFormatBuilder<I, P> {
             section_open: false,
             precision: PhantomData,
         }
+    }
+}
+
+impl<I, P: SpectrumFloat> MascotGenericFormatBuilder<I, P> {
+    pub(super) const fn section_open(&self) -> bool {
+        self.section_open
     }
 }
 
@@ -58,81 +68,20 @@ where
         let mass_divided_by_charge_ratio = split
             .next()
             .ok_or_else(|| MascotError::ParseField {
-                field: "mass divided by charge ratio",
+                field: MZ_FIELD,
                 line: line.to_string(),
-            })?
-            .parse::<f64>()
-            .map_err(|_| MascotError::ParseField {
-                field: "mass divided by charge ratio",
-                line: line.to_string(),
-            })?;
+            })
+            .and_then(|value| numeric::parse_positive_spectrum_float(value, MZ_FIELD, line))?;
 
         let fragment_intensity = split
             .next()
             .ok_or_else(|| MascotError::ParseField {
-                field: "fragment intensity",
+                field: INTENSITY_FIELD,
                 line: line.to_string(),
-            })?
-            .parse::<f64>()
-            .map_err(|_| MascotError::ParseField {
-                field: "fragment intensity",
-                line: line.to_string(),
+            })
+            .and_then(|value| {
+                numeric::parse_positive_spectrum_float(value, INTENSITY_FIELD, line)
             })?;
-
-        if !mass_divided_by_charge_ratio.is_finite() {
-            return Err(MascotError::NonFiniteField {
-                field: "mass divided by charge ratio",
-                line: line.to_string(),
-            });
-        }
-
-        if mass_divided_by_charge_ratio <= 0.0 {
-            return Err(MascotError::NonPositiveField {
-                field: "mass divided by charge ratio",
-                line: line.to_string(),
-            });
-        }
-
-        if !fragment_intensity.is_finite() {
-            return Err(MascotError::NonFiniteField {
-                field: "fragment intensity",
-                line: line.to_string(),
-            });
-        }
-
-        if fragment_intensity <= 0.0 {
-            return Err(MascotError::NonPositiveField {
-                field: "fragment intensity",
-                line: line.to_string(),
-            });
-        }
-
-        let mass_divided_by_charge_ratio =
-            P::from_f64(mass_divided_by_charge_ratio).ok_or_else(|| {
-                MascotError::UnrepresentablePrecisionField {
-                    field: "mass divided by charge ratio",
-                    line: line.to_string(),
-                }
-            })?;
-        if mass_divided_by_charge_ratio.to_f64() <= 0.0 {
-            return Err(MascotError::NonPositiveField {
-                field: "mass divided by charge ratio",
-                line: line.to_string(),
-            });
-        }
-
-        let fragment_intensity = P::from_f64(fragment_intensity).ok_or_else(|| {
-            MascotError::UnrepresentablePrecisionField {
-                field: "fragment intensity",
-                line: line.to_string(),
-            }
-        })?;
-        if fragment_intensity.to_f64() <= 0.0 {
-            return Err(MascotError::NonPositiveField {
-                field: "fragment intensity",
-                line: line.to_string(),
-            });
-        }
 
         self.mass_divided_by_charge_ratios
             .push(mass_divided_by_charge_ratio);

@@ -6,7 +6,26 @@ use core::ops::Add;
 use core::{fmt::Debug, str::FromStr};
 
 use crate::mascot_generic_format_metadata::insert_sorted_arbitrary_metadata;
+use crate::numeric;
 use crate::prelude::*;
+
+const PRECURSOR_MZ_FIELD: &str = "precursor m/z";
+const FRAGMENTATION_LEVEL_FIELD: &str = "fragmentation level";
+const RETENTION_TIME_FIELD: &str = "retention time";
+
+enum MGFMetadataLine<'a> {
+    FeatureId(&'a str),
+    PrecursorMz(&'a str),
+    MsLevel(&'a str),
+    Scans(&'a str),
+    Charge(&'a str),
+    RetentionTime(&'a str),
+    Filename(&'a str),
+    Smiles(&'a str),
+    IonMode(&'a str),
+    SourceInstrument(&'a str),
+    MergedScanMetadata,
+}
 
 /// Builder for metadata parsed from MGF header lines.
 #[derive(Debug, Clone)]
@@ -73,39 +92,36 @@ impl<
         P: SpectrumFloat,
     > MascotGenericFormatMetadataBuilder<I, P>
 {
+    fn required_merged_scan_field(value: Option<I>, field: &'static str) -> Result<I> {
+        value.ok_or(MascotError::MissingField {
+            builder: "MascotGenericFormatMetadata",
+            field,
+        })
+    }
+
     fn validate_merged_scan_metadata(&self) -> Result<()> {
         if !self.has_merged_scan_metadata() {
             return Ok(());
         }
 
-        let merged_scan_count = self.merged_scan_count.ok_or(MascotError::MissingField {
-            builder: "MascotGenericFormatMetadata",
-            field: "merged_scan_count",
-        })?;
-        let retained_merged_scan_count =
-            self.retained_merged_scan_count
-                .ok_or(MascotError::MissingField {
-                    builder: "MascotGenericFormatMetadata",
-                    field: "retained_merged_scan_count",
-                })?;
-        let removed_due_to_low_quality =
-            self.merged_scans_removed_due_to_low_quality
-                .ok_or(MascotError::MissingField {
-                    builder: "MascotGenericFormatMetadata",
-                    field: "merged_scans_removed_due_to_low_quality",
-                })?;
-        let removed_due_to_low_cosine =
-            self.merged_scans_removed_due_to_low_cosine
-                .ok_or(MascotError::MissingField {
-                    builder: "MascotGenericFormatMetadata",
-                    field: "merged_scans_removed_due_to_low_cosine",
-                })?;
-        let total_scan_count = self
-            .merged_total_scan_count
-            .ok_or(MascotError::MissingField {
-                builder: "MascotGenericFormatMetadata",
-                field: "merged_total_scan_count",
-            })?;
+        let merged_scan_count =
+            Self::required_merged_scan_field(self.merged_scan_count, "merged_scan_count")?;
+        let retained_merged_scan_count = Self::required_merged_scan_field(
+            self.retained_merged_scan_count,
+            "retained_merged_scan_count",
+        )?;
+        let removed_due_to_low_quality = Self::required_merged_scan_field(
+            self.merged_scans_removed_due_to_low_quality,
+            "merged_scans_removed_due_to_low_quality",
+        )?;
+        let removed_due_to_low_cosine = Self::required_merged_scan_field(
+            self.merged_scans_removed_due_to_low_cosine,
+            "merged_scans_removed_due_to_low_cosine",
+        )?;
+        let total_scan_count = Self::required_merged_scan_field(
+            self.merged_total_scan_count,
+            "merged_total_scan_count",
+        )?;
 
         if retained_merged_scan_count + removed_due_to_low_quality + removed_due_to_low_cosine
             != total_scan_count
@@ -154,91 +170,66 @@ impl<
 impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
     MascotGenericFormatMetadataBuilder<I, P>
 {
+    fn set_parsed_field<T>(
+        slot: &mut Option<T>,
+        value: T,
+        field: &'static str,
+        line: &str,
+        matches_existing: impl FnOnce(&T, &T) -> bool,
+    ) -> Result<()> {
+        match slot {
+            Some(observed_value) if !matches_existing(observed_value, &value) => {
+                Err(MascotError::ConflictingField {
+                    field,
+                    line: line.to_string(),
+                })
+            }
+            Some(_) => Ok(()),
+            None => {
+                *slot = Some(value);
+                Ok(())
+            }
+        }
+    }
+
     fn digest_feature_id_line(&mut self, stripped: &str, line: &str) -> Result<()> {
         let feature_id = stripped.parse::<I>().map_err(|_| MascotError::ParseField {
             field: "feature ID",
             line: line.to_string(),
         })?;
-        match self.feature_id {
-            Some(observed_feature_id) if observed_feature_id != feature_id => {
-                Err(MascotError::ConflictingField {
-                    field: "feature_id",
-                    line: line.to_string(),
-                })
-            }
-            Some(_) => Ok(()),
-            None => {
-                self.feature_id = Some(feature_id);
-                Ok(())
-            }
-        }
+        Self::set_parsed_field(
+            &mut self.feature_id,
+            feature_id,
+            "feature_id",
+            line,
+            |observed, value| observed == value,
+        )
     }
 
     fn digest_precursor_mz_line(&mut self, stripped: &str, line: &str) -> Result<()> {
-        let precursor_mz = stripped
-            .parse::<f64>()
-            .map_err(|_| MascotError::ParseField {
-                field: "precursor m/z",
-                line: line.to_string(),
-            })?;
-        if !precursor_mz.is_finite() {
-            return Err(MascotError::NonFiniteField {
-                field: "precursor m/z",
-                line: line.to_string(),
-            });
-        }
-        if precursor_mz <= 0.0 {
-            return Err(MascotError::NonPositiveField {
-                field: "precursor m/z",
-                line: line.to_string(),
-            });
-        }
-        let precursor_mz = P::from_f64(precursor_mz).ok_or_else(|| {
-            MascotError::UnrepresentablePrecisionField {
-                field: "precursor m/z",
-                line: line.to_string(),
-            }
-        })?;
-        if precursor_mz.to_f64() <= 0.0 {
-            return Err(MascotError::NonPositiveField {
-                field: "precursor m/z",
-                line: line.to_string(),
-            });
-        }
+        let precursor_mz =
+            numeric::parse_positive_spectrum_float::<P>(stripped, PRECURSOR_MZ_FIELD, line)?;
 
-        match self.precursor_mz {
-            Some(observed_precursor_mz)
-                if precursor_mz.to_f64().to_bits() != observed_precursor_mz.to_f64().to_bits() =>
-            {
-                Err(MascotError::ConflictingField {
-                    field: "precursor_mz",
-                    line: line.to_string(),
-                })
-            }
-            Some(_) => Ok(()),
-            None => {
-                self.precursor_mz = Some(precursor_mz);
-                Ok(())
-            }
-        }
+        Self::set_parsed_field(
+            &mut self.precursor_mz,
+            precursor_mz,
+            "precursor_mz",
+            line,
+            |observed, value| observed.to_f64().to_bits() == value.to_f64().to_bits(),
+        )
     }
 
-    fn parse_ms_level(line: &str) -> Result<u8> {
-        let level = line
-            .strip_prefix("MSLEVEL=")
-            .ok_or_else(|| MascotError::ParseField {
-                field: "fragmentation level",
-                line: line.to_string(),
-            })?
+    fn parse_ms_level_value(stripped: &str, line: &str) -> Result<u8> {
+        let level = stripped
             .parse::<u8>()
             .map_err(|_| MascotError::ParseField {
-                field: "fragmentation level",
+                field: FRAGMENTATION_LEVEL_FIELD,
                 line: line.to_string(),
             })?;
 
         if level == 0 {
             return Err(MascotError::NonPositiveField {
-                field: "fragmentation level",
+                field: FRAGMENTATION_LEVEL_FIELD,
                 line: line.to_string(),
             });
         }
@@ -246,19 +237,11 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
         Ok(level)
     }
 
-    fn digest_ms_level_line(&mut self, line: &str) -> Result<()> {
-        let level = Self::parse_ms_level(line)?;
-        match self.level {
-            Some(observed_level) if observed_level != level => Err(MascotError::ConflictingField {
-                field: "level",
-                line: line.to_string(),
-            }),
-            Some(_) => Ok(()),
-            None => {
-                self.level = Some(level);
-                Ok(())
-            }
-        }
+    fn digest_ms_level_line(&mut self, stripped: &str, line: &str) -> Result<()> {
+        let level = Self::parse_ms_level_value(stripped, line)?;
+        Self::set_parsed_field(&mut self.level, level, "level", line, |observed, value| {
+            observed == value
+        })
     }
 
     fn digest_scans_line(&mut self, stripped: &str, line: &str) -> Result<()> {
@@ -313,14 +296,7 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
         }
     }
 
-    fn parse_charge_line(line: &str) -> Result<i8> {
-        let charge = line
-            .strip_prefix("CHARGE=")
-            .ok_or_else(|| MascotError::InvalidCharge {
-                line: line.to_string(),
-                reason: "missing prefix",
-            })?;
-
+    fn parse_charge_value(charge: &str, line: &str) -> Result<i8> {
         let charge = if let Some(magnitude) = charge.strip_suffix('+') {
             Self::parse_trailing_sign_charge(magnitude, 1, line)?
         } else if let Some(magnitude) = charge.strip_suffix('-') {
@@ -337,74 +313,37 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
         Ok(charge)
     }
 
-    fn digest_charge_line(&mut self, line: &str) -> Result<()> {
-        let charge = Self::parse_charge_line(line)?;
-        match self.charge {
-            Some(observed_charge) if observed_charge != charge => {
-                Err(MascotError::ConflictingField {
-                    field: "charge",
-                    line: line.to_string(),
-                })
-            }
-            Some(_) => Ok(()),
-            None => {
-                self.charge = Some(charge);
-                Ok(())
-            }
-        }
+    fn digest_charge_line(&mut self, stripped: &str, line: &str) -> Result<()> {
+        let charge = Self::parse_charge_value(stripped, line)?;
+        Self::set_parsed_field(
+            &mut self.charge,
+            charge,
+            "charge",
+            line,
+            |observed, value| observed == value,
+        )
     }
 
     fn digest_retention_time_line(&mut self, stripped: &str, line: &str) -> Result<()> {
-        let retention_time = stripped
-            .parse::<f64>()
-            .map_err(|_| MascotError::ParseField {
-                field: "retention time",
-                line: line.to_string(),
-            })?;
-        if !retention_time.is_finite() {
-            return Err(MascotError::NonFiniteField {
-                field: "retention time",
-                line: line.to_string(),
-            });
-        }
-        if retention_time <= 0.0 {
-            return Err(MascotError::NonPositiveField {
-                field: "retention time",
-                line: line.to_string(),
-            });
-        }
-        match self.retention_time {
-            Some(observed_retention_time)
-                if observed_retention_time.to_bits() != retention_time.to_bits() =>
-            {
-                Err(MascotError::ConflictingField {
-                    field: "retention_time",
-                    line: line.to_string(),
-                })
-            }
-            Some(_) => Ok(()),
-            None => {
-                self.retention_time = Some(retention_time);
-                Ok(())
-            }
-        }
+        let retention_time = numeric::parse_positive_f64(stripped, RETENTION_TIME_FIELD, line)?;
+        Self::set_parsed_field(
+            &mut self.retention_time,
+            retention_time,
+            "retention_time",
+            line,
+            |observed, value| observed.to_bits() == value.to_bits(),
+        )
     }
 
     fn digest_filename_line(&mut self, stripped: &str, line: &str) -> Result<()> {
         let filename = stripped.to_string();
-        match self.filename.as_ref() {
-            Some(observed_filename) if observed_filename != &filename => {
-                Err(MascotError::ConflictingField {
-                    field: "filename",
-                    line: line.to_string(),
-                })
-            }
-            Some(_) => Ok(()),
-            None => {
-                self.filename = Some(filename);
-                Ok(())
-            }
-        }
+        Self::set_parsed_field(
+            &mut self.filename,
+            filename,
+            "filename",
+            line,
+            |observed, value| observed == value,
+        )
     }
 
     const fn missing_optional_metadata_value(stripped: &str) -> bool {
@@ -427,19 +366,13 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
                 line: line.to_string(),
                 error,
             })?;
-        match self.smiles.as_ref() {
-            Some(observed_smiles) if observed_smiles.to_string() != smiles.to_string() => {
-                Err(MascotError::ConflictingField {
-                    field: "smiles",
-                    line: line.to_string(),
-                })
-            }
-            Some(_) => Ok(()),
-            None => {
-                self.smiles = Some(smiles);
-                Ok(())
-            }
-        }
+        Self::set_parsed_field(
+            &mut self.smiles,
+            smiles,
+            "smiles",
+            line,
+            |observed, value| observed.to_string() == value.to_string(),
+        )
     }
 
     fn digest_ion_mode_line(&mut self, stripped: &str, line: &str) -> Result<()> {
@@ -454,19 +387,13 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
                 field: "ion mode",
                 line: line.to_string(),
             })?;
-        match self.ion_mode {
-            Some(observed_ion_mode) if observed_ion_mode != ion_mode => {
-                Err(MascotError::ConflictingField {
-                    field: "ion_mode",
-                    line: line.to_string(),
-                })
-            }
-            Some(_) => Ok(()),
-            None => {
-                self.ion_mode = Some(ion_mode);
-                Ok(())
-            }
-        }
+        Self::set_parsed_field(
+            &mut self.ion_mode,
+            ion_mode,
+            "ion_mode",
+            line,
+            |observed, value| observed == value,
+        )
     }
 
     fn digest_source_instrument_line(&mut self, stripped: &str, line: &str) -> Result<()> {
@@ -484,19 +411,13 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
                     field: "source instrument",
                     line: line.to_string(),
                 })?;
-        match self.source_instrument {
-            Some(observed_source_instrument) if observed_source_instrument != source_instrument => {
-                Err(MascotError::ConflictingField {
-                    field: "source_instrument",
-                    line: line.to_string(),
-                })
-            }
-            Some(_) => Ok(()),
-            None => {
-                self.source_instrument = Some(source_instrument);
-                Ok(())
-            }
-        }
+        Self::set_parsed_field(
+            &mut self.source_instrument,
+            source_instrument,
+            "source_instrument",
+            line,
+            |observed, value| observed == value,
+        )
     }
 
     pub(super) fn digest_arbitrary_metadata_line(&mut self, line: &str) -> Result<()> {
@@ -629,6 +550,50 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
 impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
     MascotGenericFormatMetadataBuilder<I, P>
 {
+    fn classify_line(line: &str) -> Option<MGFMetadataLine<'_>> {
+        if let Some(stripped) = line.strip_prefix("FEATURE_ID=") {
+            return Some(MGFMetadataLine::FeatureId(stripped));
+        }
+
+        if let Some(stripped) = line.strip_prefix("PEPMASS=") {
+            return Some(MGFMetadataLine::PrecursorMz(stripped));
+        }
+
+        if let Some(stripped) = line.strip_prefix("MSLEVEL=") {
+            return Some(MGFMetadataLine::MsLevel(stripped));
+        }
+
+        if let Some(stripped) = line.strip_prefix("SCANS=") {
+            return Some(MGFMetadataLine::Scans(stripped));
+        }
+
+        if let Some(stripped) = line.strip_prefix("CHARGE=") {
+            return Some(MGFMetadataLine::Charge(stripped));
+        }
+
+        if let Some(stripped) = line.strip_prefix("RTINSECONDS=") {
+            return Some(MGFMetadataLine::RetentionTime(stripped));
+        }
+
+        if let Some(stripped) = line.strip_prefix("FILENAME=") {
+            return Some(MGFMetadataLine::Filename(stripped));
+        }
+
+        if let Some(stripped) = line.strip_prefix("SMILES=") {
+            return Some(MGFMetadataLine::Smiles(stripped));
+        }
+
+        if let Some(stripped) = line.strip_prefix("IONMODE=") {
+            return Some(MGFMetadataLine::IonMode(stripped));
+        }
+
+        if let Some(stripped) = line.strip_prefix("SOURCE_INSTRUMENT=") {
+            return Some(MGFMetadataLine::SourceInstrument(stripped));
+        }
+
+        Self::is_merged_scan_metadata_line(line).then_some(MGFMetadataLine::MergedScanMetadata)
+    }
+
     /// Returns whether the line can be parsed by this parser.
     ///
     /// # Arguments
@@ -640,17 +605,7 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
     /// filenames, SMILES, ion-mode metadata, source-instrument metadata,
     /// partial-read scan markers, and merged-scan metadata lines.
     pub(super) fn can_parse_line(line: &str) -> bool {
-        line.starts_with("FEATURE_ID=")
-            || line.starts_with("PEPMASS=")
-            || line.starts_with("MSLEVEL=")
-            || line.starts_with("SCANS=")
-            || line.starts_with("RTINSECONDS=")
-            || line.starts_with("FILENAME=")
-            || line.starts_with("SMILES=")
-            || line.starts_with("IONMODE=")
-            || line.starts_with("SOURCE_INSTRUMENT=")
-            || line.starts_with("CHARGE=")
-            || Self::is_merged_scan_metadata_line(line)
+        Self::classify_line(line).is_some()
     }
 
     /// Returns whether the line can be stored as arbitrary metadata.
@@ -677,54 +632,31 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
     /// * If PEPMASS was already encountered and it is now different.
     /// * If rtinseconds was already encountered and it is now different.
     pub(super) fn digest_line(&mut self, line: &str) -> Result<()> {
-        if let Some(stripped) = line.strip_prefix("FEATURE_ID=") {
-            return self.digest_feature_id_line(stripped, line);
+        match Self::classify_line(line) {
+            Some(MGFMetadataLine::FeatureId(stripped)) => {
+                self.digest_feature_id_line(stripped, line)
+            }
+            Some(MGFMetadataLine::PrecursorMz(stripped)) => {
+                self.digest_precursor_mz_line(stripped, line)
+            }
+            Some(MGFMetadataLine::MsLevel(stripped)) => self.digest_ms_level_line(stripped, line),
+            Some(MGFMetadataLine::Scans(stripped)) => self.digest_scans_line(stripped, line),
+            Some(MGFMetadataLine::Charge(stripped)) => self.digest_charge_line(stripped, line),
+            Some(MGFMetadataLine::RetentionTime(stripped)) => {
+                self.digest_retention_time_line(stripped, line)
+            }
+            Some(MGFMetadataLine::Filename(stripped)) => self.digest_filename_line(stripped, line),
+            Some(MGFMetadataLine::Smiles(stripped)) => self.digest_smiles_line(stripped, line),
+            Some(MGFMetadataLine::IonMode(stripped)) => self.digest_ion_mode_line(stripped, line),
+            Some(MGFMetadataLine::SourceInstrument(stripped)) => {
+                self.digest_source_instrument_line(stripped, line)
+            }
+            Some(MGFMetadataLine::MergedScanMetadata) => self.digest_merge_scans_line(line),
+            None => Err(MascotError::UnsupportedLine {
+                parser: "MascotGenericFormatMetadataBuilder",
+                line: line.to_string(),
+            }),
         }
-
-        if let Some(stripped) = line.strip_prefix("PEPMASS=") {
-            return self.digest_precursor_mz_line(stripped, line);
-        }
-
-        if line.starts_with("MSLEVEL=") {
-            return self.digest_ms_level_line(line);
-        }
-
-        if let Some(stripped) = line.strip_prefix("SCANS=") {
-            return self.digest_scans_line(stripped, line);
-        }
-
-        if line.starts_with("CHARGE=") {
-            return self.digest_charge_line(line);
-        }
-
-        if let Some(stripped) = line.strip_prefix("RTINSECONDS=") {
-            return self.digest_retention_time_line(stripped, line);
-        }
-
-        if let Some(stripped) = line.strip_prefix("FILENAME=") {
-            return self.digest_filename_line(stripped, line);
-        }
-
-        if let Some(stripped) = line.strip_prefix("SMILES=") {
-            return self.digest_smiles_line(stripped, line);
-        }
-
-        if let Some(stripped) = line.strip_prefix("IONMODE=") {
-            return self.digest_ion_mode_line(stripped, line);
-        }
-
-        if let Some(stripped) = line.strip_prefix("SOURCE_INSTRUMENT=") {
-            return self.digest_source_instrument_line(stripped, line);
-        }
-
-        if Self::is_merged_scan_metadata_line(line) {
-            return self.digest_merge_scans_line(line);
-        }
-
-        Err(MascotError::UnsupportedLine {
-            parser: "MascotGenericFormatMetadataBuilder",
-            line: line.to_string(),
-        })
     }
 }
 
@@ -1051,7 +983,13 @@ mod tests {
             assert!(parser.digest_line(line).is_err(), "{line}");
         }
 
-        assert!(MascotGenericFormatMetadataBuilder::<usize>::parse_ms_level("LEVEL=2").is_err());
+        assert!(
+            MascotGenericFormatMetadataBuilder::<usize>::parse_ms_level_value(
+                "not-a-level",
+                "MSLEVEL=not-a-level",
+            )
+            .is_err()
+        );
 
         let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
         assert!(parser.digest_merge_scans_line("MERGED_OTHER=1").is_err());

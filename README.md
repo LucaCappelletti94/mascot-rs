@@ -6,7 +6,6 @@
 [![Documentation](https://docs.rs/mascot-rs/badge.svg)](https://docs.rs/mascot-rs)
 
 Parsing utilities for Mascot Generic Format (MGF) spectra. Algorithmic work is delegated to the shared [`mass_spectrometry`](https://github.com/earth-metabolome-initiative/mass-spectrometry-traits) traits and structs exposed through the prelude.
-MGF feature IDs are optional; when `FEATURE_ID` is absent and `SCANS=-1`, the parsed metadata stores no feature ID.
 
 ## Feature Flags
 
@@ -133,6 +132,54 @@ assert_eq!(spectra.len(), 74);
 # fn main() {}
 ```
 
+## Streaming Records
+
+Use `MGFIter` when records should be read one by one instead of collecting a
+whole document into memory. This is the preferred shape for very large MGF
+documents and sharded corpora.
+
+```rust
+# #[cfg(feature = "std")]
+# fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+use mascot_rs::prelude::*;
+
+let document = r#"BEGIN IONS
+PEPMASS=500.0
+CHARGE=1
+MSLEVEL=2
+100.0 2.0
+SCANS=-1
+END IONS
+
+BEGIN IONS
+PEPMASS=600.0
+CHARGE=1
+MSLEVEL=2
+200.0 3.0
+SCANS=-1
+END IONS
+"#;
+
+let mut records = MGFVec::<usize>::iter_from_str(document);
+
+let first = records
+    .next()
+    .transpose()?
+    .ok_or_else(|| std::io::Error::other("missing first MGF record"))?;
+let second = records
+    .next()
+    .transpose()?
+    .ok_or_else(|| std::io::Error::other("missing second MGF record"))?;
+
+assert_eq!(first.precursor_mz().to_bits(), 500.0_f64.to_bits());
+assert_eq!(second.precursor_mz().to_bits(), 600.0_f64.to_bits());
+assert!(records.next().is_none());
+# Ok(())
+# }
+# #[cfg(not(feature = "std"))]
+# fn main() {}
+```
+
 ## Parsing One Record
 
 Use [`MascotGenericFormat`] when the input must contain exactly one ion block.
@@ -246,6 +293,6 @@ assert_eq!(load.skipped_records(), 1);
 # fn main() {}
 ```
 
+[`MascotError::SingleRecordExpected`]: crate::error::MascotError::SingleRecordExpected
 [`MGFVec`]: crate::mascot_generic_format::MGFVec
 [`MascotGenericFormat`]: crate::mascot_generic_format::MascotGenericFormat
-[`MascotError::SingleRecordExpected`]: crate::error::MascotError::SingleRecordExpected

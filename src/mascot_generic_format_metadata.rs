@@ -4,7 +4,10 @@ use alloc::{
 };
 use core::{fmt, str::FromStr};
 
+use crate::numeric;
 use crate::prelude::*;
+
+const RETENTION_TIME_FIELD: &str = "retention time";
 
 /// Ionization polarity reported for an MGF ion block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -428,19 +431,11 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
         }
 
         if let Some(retention_time) = retention_time {
-            if !retention_time.is_finite() || retention_time <= 0.0 {
-                return if retention_time.is_finite() {
-                    Err(MascotError::NonPositiveField {
-                        field: "retention time",
-                        line: retention_time.to_string(),
-                    })
-                } else {
-                    Err(MascotError::NonFiniteField {
-                        field: "retention time",
-                        line: retention_time.to_string(),
-                    })
-                };
-            }
+            numeric::validate_positive_f64(
+                retention_time,
+                RETENTION_TIME_FIELD,
+                &retention_time.to_string(),
+            )?;
         }
 
         if let Some(filename) = &filename {

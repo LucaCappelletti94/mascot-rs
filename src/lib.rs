@@ -15,6 +15,8 @@ mod mascot_generic_format_builder;
 pub mod mascot_generic_format_metadata;
 #[doc(hidden)]
 mod mascot_generic_format_metadata_builder;
+#[doc(hidden)]
+mod numeric;
 
 /// Commonly used crate exports.
 pub mod prelude {
@@ -28,6 +30,7 @@ pub mod prelude {
     pub use crate::gnps::GNPSVerbosity;
     #[cfg(feature = "std")]
     pub use crate::gnps::GNPS_ALL_MGF_URL;
+    pub use crate::mascot_generic_format::MGFIter;
     pub use crate::mascot_generic_format::MGFVec;
     pub use crate::mascot_generic_format::MascotGenericFormat;
     pub use crate::mascot_generic_format_metadata::Instrument;

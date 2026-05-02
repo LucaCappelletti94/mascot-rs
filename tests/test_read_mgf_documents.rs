@@ -90,6 +90,135 @@ fn test_from_reader_reports_io_errors() {
 }
 
 #[test]
+fn test_mgf_iter_reads_records_one_by_one() -> Result<()> {
+    let document = concat!(
+        "BEGIN IONS\n",
+        "FEATURE_ID=1\n",
+        "PEPMASS=500.0\n",
+        "CHARGE=1\n",
+        "RTINSECONDS=10.0\n",
+        "MSLEVEL=2\n",
+        "100.0 2.0\n",
+        "SCANS=1\n",
+        "END IONS\n",
+        "\n",
+        "BEGIN IONS\n",
+        "FEATURE_ID=2\n",
+        "PEPMASS=600.0\n",
+        "CHARGE=1\n",
+        "RTINSECONDS=12.0\n",
+        "MSLEVEL=2\n",
+        "200.0 3.0\n",
+        "SCANS=2\n",
+        "END IONS\n",
+    );
+    let mut iter = MGFVec::<usize, f32>::iter_from_reader(std::io::Cursor::new(document));
+
+    let first = iter
+        .next()
+        .transpose()?
+        .ok_or(MascotError::SingleRecordExpected { found: 0 })?;
+    let second = iter
+        .next()
+        .transpose()?
+        .ok_or(MascotError::SingleRecordExpected { found: 1 })?;
+
+    assert_eq!(first.feature_id(), Some(1));
+    assert_eq!(first.precursor_mz().to_bits(), 500.0_f32.to_bits());
+    assert_eq!(second.feature_id(), Some(2));
+    assert_eq!(second.precursor_mz().to_bits(), 600.0_f32.to_bits());
+    assert!(iter.next().is_none());
+
+    Ok(())
+}
+
+#[test]
+fn test_mgf_iter_reads_borrowed_str_without_std_reader() -> Result<()> {
+    let document = concat!(
+        "BEGIN IONS\n",
+        "PEPMASS=500.0\n",
+        "CHARGE=1\n",
+        "MSLEVEL=2\n",
+        "100.0 2.0\n",
+        "SCANS=-1\n",
+        "END IONS\n",
+    );
+    let mut iter = MGFVec::<usize, f32>::iter_from_str(document);
+
+    let record = iter
+        .next()
+        .transpose()?
+        .ok_or(MascotError::SingleRecordExpected { found: 0 })?;
+
+    assert_eq!(record.feature_id(), None);
+    assert_eq!(record.precursor_mz().to_bits(), 500.0_f32.to_bits());
+    assert!(iter.next().is_none());
+
+    Ok(())
+}
+
+#[test]
+fn test_mgf_iter_reports_line_context_and_stops() {
+    let document = concat!(
+        "BEGIN IONS\n",
+        "FEATURE_ID=not-a-number\n",
+        "PEPMASS=500.0\n",
+        "CHARGE=1\n",
+        "RTINSECONDS=10.0\n",
+        "MSLEVEL=2\n",
+        "100.0 2.0\n",
+        "SCANS=1\n",
+        "END IONS\n",
+    );
+    let mut iter = MGFVec::<usize>::iter_from_reader(std::io::Cursor::new(document));
+
+    assert!(matches!(
+        iter.next(),
+        Some(Err(MascotError::InputLine { line_number: 2, .. }))
+    ));
+    assert!(iter.next().is_none());
+}
+
+#[test]
+fn test_mgf_iter_from_path_reads_compressed_records(
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let target_directory =
+        std::env::temp_dir().join(format!("mascot-rs-iter-zstd-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&target_directory);
+    std::fs::create_dir_all(&target_directory)?;
+    let path = target_directory.join("compressed.mgf.zst");
+    let document = concat!(
+        "BEGIN IONS\n",
+        "FEATURE_ID=3\n",
+        "PEPMASS=700.0\n",
+        "CHARGE=1\n",
+        "RTINSECONDS=14.0\n",
+        "MSLEVEL=2\n",
+        "300.0 4.0\n",
+        "SCANS=3\n",
+        "END IONS\n",
+    );
+    let file = std::fs::File::create(&path)?;
+    let mut encoder = zstd::stream::write::Encoder::new(file, 0)?;
+    std::io::Write::write_all(&mut encoder, document.as_bytes())?;
+    encoder.finish()?;
+
+    let mut iter = MGFVec::<usize, f32>::iter_from_path(&path)?;
+    let record = iter
+        .next()
+        .transpose()?
+        .ok_or_else(|| std::io::Error::other("missing MGF record"))?;
+
+    assert_eq!(record.feature_id(), Some(3));
+    assert_eq!(record.precursor_mz().to_bits(), 700.0_f32.to_bits());
+    assert!(iter.next().is_none());
+    drop(iter);
+    std::fs::remove_dir_all(&target_directory)?;
+
+    Ok(())
+}
+
+#[test]
 fn test_from_reader_wraps_build_errors_with_line_context() {
     let document = concat!(
         "BEGIN IONS\n",
@@ -946,7 +1075,11 @@ fn test_metadata_rejects_invalid_smiles() {
 
     assert!(matches!(
         MGFVec::<usize>::try_from_iter(lines),
-        Err(MascotError::InvalidSmiles { .. })
+        Err(MascotError::InputLine {
+            line_number: 7,
+            source,
+            ..
+        }) if matches!(*source, MascotError::InvalidSmiles { .. })
     ));
 }
 
@@ -1189,7 +1322,11 @@ fn test_empty_records_are_rejected_by_strict_parser() {
 
     assert!(matches!(
         MGFVec::<usize>::try_from_iter(lines),
-        Err(MascotError::EmptyPeakVectors)
+        Err(MascotError::InputLine {
+            line_number: 9,
+            source,
+            ..
+        }) if matches!(*source, MascotError::EmptyPeakVectors)
     ));
 }
 

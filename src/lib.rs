@@ -36,7 +36,9 @@ pub mod prelude {
     pub use crate::mascot_generic_format_metadata::Instrument;
     pub use crate::mascot_generic_format_metadata::IonMode;
     pub use crate::mascot_generic_format_metadata::MascotGenericFormatMetadata;
-    pub use mass_spectrometry::prelude::{GenericSpectrum, Spectra, Spectrum, SpectrumFloat};
+    pub use mass_spectrometry::prelude::{
+        GenericSpectrum, Spectra, Spectrum, SpectrumAlloc, SpectrumFloat, SpectrumMut,
+    };
     #[cfg(feature = "mem_dbg")]
     pub use mem_dbg::{DbgFlags, MemDbg};
     #[cfg(feature = "mem_size")]

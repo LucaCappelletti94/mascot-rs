@@ -16,7 +16,9 @@ use std::{
     path::Path,
 };
 
-use mass_spectrometry::prelude::{GenericSpectrum, Spectra, Spectrum, SpectrumFloat, SpectrumMut};
+use mass_spectrometry::prelude::{
+    GenericSpectrum, Spectra, Spectrum, SpectrumAlloc, SpectrumFloat, SpectrumMut,
+};
 
 use crate::error::{MascotError, Result};
 #[cfg(feature = "std")]
@@ -317,6 +319,31 @@ impl<I: Copy, P: SpectrumFloat> Spectrum for MascotGenericFormat<I, P> {
 
     fn precursor_mz(&self) -> Self::Precision {
         self.spectrum.precursor_mz()
+    }
+}
+
+impl<I: Copy, P: SpectrumFloat> SpectrumMut for MascotGenericFormat<I, P> {
+    type MutationError = MascotError;
+
+    fn add_peak(&mut self, mz: P, intensity: P) -> Result<&mut Self> {
+        self.spectrum.add_peak(mz, intensity)?;
+        Ok(self)
+    }
+}
+
+impl<I: Copy, P: SpectrumFloat> SpectrumAlloc for MascotGenericFormat<I, P> {
+    fn with_capacity(precursor_mz: f64, capacity: usize) -> Result<Self> {
+        Ok(Self {
+            metadata: MascotGenericFormatMetadata::new(None, 2, None, 0, None)?,
+            spectrum: GenericSpectrum::<P>::try_with_capacity(precursor_mz, capacity)?,
+        })
+    }
+
+    fn top_k_peaks(&self, k: usize) -> Result<Self> {
+        Ok(Self {
+            metadata: self.metadata.clone(),
+            spectrum: <GenericSpectrum<P> as SpectrumAlloc>::top_k_peaks(&self.spectrum, k)?,
+        })
     }
 }
 

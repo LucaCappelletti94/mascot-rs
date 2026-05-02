@@ -1166,6 +1166,45 @@ fn test_precision_generic_can_store_f32_spectra() -> Result<()> {
 }
 
 #[test]
+fn test_mgf_record_implements_allocable_spectrum_traits() -> Result<()> {
+    fn assert_allocable<S: SpectrumAlloc<Precision = f32>>(_spectrum: &S) {}
+
+    let mut allocated = MascotGenericFormat::<usize, f32>::with_capacity(500.0, 2)?;
+    assert_allocable(&allocated);
+    assert_eq!(allocated.level(), 2);
+    assert_eq!(allocated.charge(), 0);
+    assert!(allocated.feature_id().is_none());
+    assert!(allocated.is_empty());
+
+    allocated.add_peak(100.0, 2.0)?;
+    allocated.add_peak(200.0, 3.0)?;
+    assert_eq!(allocated.len(), 2);
+
+    let metadata = MascotGenericFormatMetadata::new(Some(7), 2, Some(10.0), 1, None)?;
+    let record: MascotGenericFormat<usize, f32> = MascotGenericFormat::new(
+        metadata,
+        500.0,
+        vec![100.0, 150.0, 200.0, 250.0],
+        vec![2.0, 5.0, 3.0, 5.0],
+    )?;
+
+    let top = record.top_k_peaks(2)?;
+    assert_eq!(top.feature_id(), Some(7));
+    assert_eq!(top.len(), 2);
+    assert_eq!(
+        top.peaks()
+            .map(|(mz, intensity)| (mz.to_bits(), intensity.to_bits()))
+            .collect::<Vec<_>>(),
+        vec![
+            (150.0_f32.to_bits(), 5.0_f32.to_bits()),
+            (250.0_f32.to_bits(), 5.0_f32.to_bits()),
+        ]
+    );
+
+    Ok(())
+}
+
+#[test]
 fn test_memory_footprint_is_available_from_prelude() -> Result<()> {
     let lines = [
         "BEGIN IONS",

@@ -2,6 +2,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
+/// Downloadable dataset traits.
+#[cfg(feature = "std")]
+pub mod dataset;
 /// Error types returned by this crate.
 pub mod error;
 /// `GeMS-A10` dataset helpers.
@@ -23,10 +26,18 @@ mod numeric;
 
 /// Commonly used crate exports.
 pub mod prelude {
+    #[cfg(feature = "std")]
+    pub use crate::dataset::Dataset;
+    #[cfg(feature = "std")]
+    pub use crate::dataset::DatasetFuture;
     pub use crate::error::MascotError;
     pub use crate::error::Result;
     #[cfg(feature = "std")]
     pub use crate::gems_a10::GemsA10Builder;
+    #[cfg(feature = "std")]
+    pub use crate::gems_a10::GemsA10Download;
+    #[cfg(feature = "std")]
+    pub use crate::gems_a10::GemsA10FileDownload;
     #[cfg(feature = "std")]
     pub use crate::gems_a10::GemsA10FileLoad;
     #[cfg(feature = "std")]
@@ -41,6 +52,8 @@ pub mod prelude {
     pub use crate::gems_a10::GEMS_A10_ZENODO_RECORD_ID;
     #[cfg(feature = "std")]
     pub use crate::gnps::GNPSBuilder;
+    #[cfg(feature = "std")]
+    pub use crate::gnps::GNPSDownload;
     #[cfg(feature = "std")]
     pub use crate::gnps::GNPSLoad;
     #[cfg(feature = "std")]

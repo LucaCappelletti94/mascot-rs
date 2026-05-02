@@ -245,8 +245,10 @@ assert_eq!(spectrum.mz_nth(0).to_bits(), 100.0_f32.to_bits());
 ## GNPS
 
 The GNPS helper is exposed through `MGFVec::<usize, P>::gnps()`. The example
-below writes a small local `ALL_GNPS.mgf` file first, so the builder loads an
-existing file and does not perform a network request.
+below writes a small local `ALL_GNPS.mgf` file first, so the builder downloads
+from the local cache, then loads that existing file without performing a network
+request. Dataset builders also implement `Dataset`, whose `download()` method
+only ensures that the local dataset file exists.
 
 ```rust
 # #[cfg(feature = "std")]
@@ -255,11 +257,12 @@ use mascot_rs::prelude::*;
 
 let target_directory =
     std::env::temp_dir().join(format!("mascot-rs-readme-{}", std::process::id()));
+let cached_path = target_directory.join("ALL_GNPS.mgf");
 let _ = std::fs::remove_dir_all(&target_directory);
 std::fs::create_dir_all(&target_directory)?;
 
 std::fs::write(
-    target_directory.join("ALL_GNPS.mgf"),
+    &cached_path,
     r#"BEGIN IONS
 PEPMASS=0.0
 CHARGE=1
@@ -276,6 +279,13 @@ SCANS=2
 END IONS
 "#,
 )?;
+
+let download = pollster::block_on(
+    MGFVec::<usize, f32>::gnps()
+        .target_directory(&target_directory)
+        .download(),
+)?;
+assert_eq!(download.path(), cached_path.as_path());
 
 let load = pollster::block_on(
     MGFVec::<usize, f32>::gnps()
@@ -299,7 +309,8 @@ The GeMS-A10 helper is exposed through `MGFVec::<usize, P>::gems_a10()`.
 By default it targets Zenodo record `19980668` and the 24 compressed MGF part
 files. Uncached downloads use `zenodo-rs` and should be awaited inside a Tokio
 runtime. The example below writes a small cached file first, so the builder
-loads the local file and does not perform a network request.
+downloads from the local cache, then loads that local file without performing a
+network request.
 
 ```rust
 # #[cfg(feature = "std")]
@@ -308,11 +319,12 @@ use mascot_rs::prelude::*;
 
 let target_directory =
     std::env::temp_dir().join(format!("mascot-rs-gems-a10-readme-{}", std::process::id()));
+let cached_path = target_directory.join("cached-gems-a10.mgf");
 let _ = std::fs::remove_dir_all(&target_directory);
 std::fs::create_dir_all(&target_directory)?;
 
 std::fs::write(
-    target_directory.join("cached-gems-a10.mgf"),
+    &cached_path,
     r"BEGIN IONS
 PEPMASS=500.0
 CHARGE=1
@@ -323,6 +335,14 @@ SCANS=1
 END IONS
 ",
 )?;
+
+let download = pollster::block_on(
+    MGFVec::<usize, f32>::gems_a10()
+        .target_directory(&target_directory)
+        .file_key("cached-gems-a10.mgf")
+        .download(),
+)?;
+assert_eq!(download.files()[0].path(), cached_path.as_path());
 
 let load = pollster::block_on(
     MGFVec::<usize, f32>::gems_a10()

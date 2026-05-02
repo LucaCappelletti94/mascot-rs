@@ -6,6 +6,7 @@ use indicatif::ProgressBar;
 use mass_spectrometry::prelude::SpectrumFloat;
 use zenodo_rs::{ArtifactSelector, Auth, RecordId, TransferProgress, ZenodoClient};
 
+use crate::dataset::{Dataset, DatasetFuture};
 use crate::error::{MascotError, Result};
 use crate::mascot_generic_format::MGFVec;
 
@@ -215,16 +216,16 @@ impl<P: SpectrumFloat> GemsA10Builder<P> {
             .collect()
     }
 
-    /// Downloads the selected `GeMS-A10` files if needed and loads valid MGF records.
+    /// Downloads the selected `GeMS-A10` files if needed without loading records.
     ///
-    /// The published dataset is split into compressed MGF part files. All
-    /// malformed records are skipped and counted in the returned [`GemsA10Load`].
+    /// The published dataset is split into compressed MGF part files. This
+    /// method only ensures that the selected local files exist.
     ///
     /// # Errors
     /// Returns an error if the selected file list is empty, if a file key is
-    /// empty, if a Zenodo operation fails, if a local file cannot be written, or
-    /// if a downloaded file cannot be read back.
-    pub async fn load(self) -> Result<GemsA10Load<P>> {
+    /// empty, if a Zenodo operation fails, or if a local file cannot be
+    /// inspected or written.
+    pub async fn download(self) -> Result<GemsA10Download> {
         std::future::ready(()).await;
 
         if self.config.file_keys.is_empty() {
@@ -245,9 +246,7 @@ impl<P: SpectrumFloat> GemsA10Builder<P> {
         })?;
 
         let mut client = None;
-        let mut records = Vec::new();
         let mut files = Vec::with_capacity(self.config.file_keys.len());
-        let mut skipped_records = 0_usize;
         let mut bytes = 0_u64;
 
         for file_key in &self.config.file_keys {
@@ -278,23 +277,42 @@ impl<P: SpectrumFloat> GemsA10Builder<P> {
                 .await?
             };
 
-            let (part_records, part_skipped_records) =
-                MGFVec::<usize, P>::from_path_skipping_invalid_records(&path)?;
-            records.extend(part_records);
-            skipped_records += part_skipped_records;
             bytes += file_bytes;
-            files.push(GemsA10FileLoad {
+            files.push(GemsA10FileDownload {
                 key: file_key.clone(),
                 path,
                 bytes: file_bytes,
             });
         }
 
+        Ok(GemsA10Download { files, bytes })
+    }
+
+    /// Downloads the selected `GeMS-A10` files if needed and loads valid MGF records.
+    ///
+    /// The published dataset is split into compressed MGF part files. All
+    /// malformed records are skipped and counted in the returned [`GemsA10Load`].
+    ///
+    /// # Errors
+    /// Returns an error if downloading fails or if a downloaded file cannot be
+    /// read back.
+    pub async fn load(self) -> Result<GemsA10Load<P>> {
+        let download = self.download().await?;
+        let mut records = Vec::new();
+        let mut skipped_records = 0_usize;
+
+        for file in download.files() {
+            let (part_records, part_skipped_records) =
+                MGFVec::<usize, P>::from_path_skipping_invalid_records(file.path())?;
+            records.extend(part_records);
+            skipped_records += part_skipped_records;
+        }
+
         Ok(GemsA10Load {
             spectra: records.into_iter().collect(),
             skipped_records,
-            files,
-            bytes,
+            files: download.files,
+            bytes: download.bytes,
         })
     }
 
@@ -372,6 +390,22 @@ impl<P: SpectrumFloat> GemsA10Builder<P> {
     }
 }
 
+impl<P> Dataset for GemsA10Builder<P>
+where
+    P: SpectrumFloat + Send + 'static,
+{
+    type Download = GemsA10Download;
+    type Load = GemsA10Load<P>;
+
+    fn download(self) -> DatasetFuture<Self::Download> {
+        Box::pin(Self::download(self))
+    }
+
+    fn load(self) -> DatasetFuture<Self::Load> {
+        Box::pin(Self::load(self))
+    }
+}
+
 enum GemsA10Progress {
     Quiet,
     Indicatif(ProgressBar),
@@ -400,17 +434,20 @@ impl TransferProgress for GemsA10Progress {
     }
 }
 
-/// Metadata for a downloaded and loaded `GeMS-A10` file.
+/// Metadata for a downloaded `GeMS-A10` file.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
 #[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
-pub struct GemsA10FileLoad {
+pub struct GemsA10FileDownload {
     key: String,
     path: PathBuf,
     bytes: u64,
 }
 
-impl GemsA10FileLoad {
+/// Alias for per-file `GeMS-A10` metadata returned by load and download results.
+pub type GemsA10FileLoad = GemsA10FileDownload;
+
+impl GemsA10FileDownload {
     /// Returns the Zenodo file key.
     #[must_use]
     pub fn key(&self) -> &str {
@@ -430,6 +467,29 @@ impl GemsA10FileLoad {
     }
 }
 
+/// Result of downloading selected `GeMS-A10` MGF files.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
+#[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
+pub struct GemsA10Download {
+    files: Vec<GemsA10FileDownload>,
+    bytes: u64,
+}
+
+impl GemsA10Download {
+    /// Returns per-file download metadata.
+    #[must_use]
+    pub fn files(&self) -> &[GemsA10FileDownload] {
+        &self.files
+    }
+
+    /// Returns the total size of the local dataset files in bytes.
+    #[must_use]
+    pub const fn bytes(&self) -> u64 {
+        self.bytes
+    }
+}
+
 /// Result of loading selected `GeMS-A10` MGF files.
 #[derive(Debug)]
 #[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
@@ -437,7 +497,7 @@ impl GemsA10FileLoad {
 pub struct GemsA10Load<P: SpectrumFloat = f64> {
     spectra: MGFVec<usize, P>,
     skipped_records: usize,
-    files: Vec<GemsA10FileLoad>,
+    files: Vec<GemsA10FileDownload>,
     bytes: u64,
 }
 
@@ -462,7 +522,7 @@ impl<P: SpectrumFloat> GemsA10Load<P> {
 
     /// Returns per-file load metadata.
     #[must_use]
-    pub fn files(&self) -> &[GemsA10FileLoad] {
+    pub fn files(&self) -> &[GemsA10FileDownload] {
         &self.files
     }
 

@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use indicatif::ProgressBar;
 use mass_spectrometry::prelude::SpectrumFloat;
 
+use crate::dataset::{Dataset, DatasetFuture};
 use crate::error::{MascotError, Result};
 use crate::mascot_generic_format::MGFVec;
 
@@ -32,7 +33,7 @@ pub enum GNPSVerbosity {
 #[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
 pub struct GNPSBuilder<P: SpectrumFloat = f64> {
     config: GNPSBuilderConfig,
-    precision: PhantomData<P>,
+    precision: PhantomData<fn() -> P>,
 }
 
 #[derive(Debug, Clone)]
@@ -103,15 +104,13 @@ impl<P: SpectrumFloat> GNPSBuilder<P> {
         self.config.target_directory.join(&self.config.file_name)
     }
 
-    /// Downloads the GNPS library if needed and loads the valid MGF records.
-    ///
-    /// GNPS library exports can contain empty or malformed ion blocks. Those
-    /// records are skipped and counted in the returned [`GNPSLoad`].
+    /// Downloads the GNPS library if needed without loading the MGF records.
     ///
     /// # Errors
-    /// Returns an error if the download fails, if the target file cannot be
-    /// written, or if the downloaded file cannot be read back.
-    pub async fn load(self) -> Result<GNPSLoad<P>> {
+    /// Returns an error if the configured file name is empty, if the target
+    /// directory cannot be created, if the existing local file cannot be
+    /// inspected, or if the remote library cannot be downloaded.
+    pub async fn download(self) -> Result<GNPSDownload> {
         std::future::ready(()).await;
 
         if self.config.file_name.is_empty() {
@@ -141,13 +140,27 @@ impl<P: SpectrumFloat> GNPSBuilder<P> {
             self.download_to_path(&path)?
         };
 
-        let (spectra, skipped_records) = Self::load_path(&path)?;
+        Ok(GNPSDownload { path, bytes })
+    }
+
+    /// Downloads the GNPS library if needed and loads the valid MGF records.
+    ///
+    /// GNPS library exports can contain empty or malformed ion blocks. Those
+    /// records are skipped and counted in the returned [`GNPSLoad`].
+    ///
+    /// # Errors
+    /// Returns an error if the download fails, if the target file cannot be
+    /// written, or if the downloaded file cannot be read back.
+    pub async fn load(self) -> Result<GNPSLoad<P>> {
+        let download = self.download().await?;
+
+        let (spectra, skipped_records) = Self::load_path(download.path())?;
 
         Ok(GNPSLoad {
             spectra,
             skipped_records,
-            path,
-            bytes,
+            path: download.path,
+            bytes: download.bytes,
         })
     }
 
@@ -224,6 +237,45 @@ impl<P: SpectrumFloat> GNPSBuilder<P> {
 
     fn load_path(path: &Path) -> Result<(MGFVec<usize, P>, usize)> {
         MGFVec::<usize, P>::from_path_skipping_invalid_records(path)
+    }
+}
+
+impl<P> Dataset for GNPSBuilder<P>
+where
+    P: SpectrumFloat + Send + 'static,
+{
+    type Download = GNPSDownload;
+    type Load = GNPSLoad<P>;
+
+    fn download(self) -> DatasetFuture<Self::Download> {
+        Box::pin(Self::download(self))
+    }
+
+    fn load(self) -> DatasetFuture<Self::Load> {
+        Box::pin(Self::load(self))
+    }
+}
+
+/// Result of downloading the GNPS MGF library.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
+#[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
+pub struct GNPSDownload {
+    path: PathBuf,
+    bytes: u64,
+}
+
+impl GNPSDownload {
+    /// Returns the local path used for the GNPS MGF file.
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    /// Returns the size of the local GNPS MGF file in bytes.
+    #[must_use]
+    pub const fn bytes(&self) -> u64 {
+        self.bytes
     }
 }
 

@@ -1448,6 +1448,38 @@ fn test_gnps_builder_loads_existing_downloaded_file() -> Result<()> {
 }
 
 #[test]
+fn test_gnps_builder_downloads_existing_file_without_loading() -> Result<()> {
+    let target_directory = std::env::temp_dir().join(format!(
+        "mascot-rs-gnps-download-test-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&target_directory);
+    std::fs::create_dir_all(&target_directory).map_err(|source| MascotError::Io {
+        path: target_directory.display().to_string(),
+        source,
+    })?;
+    let builder = MGFVec::<usize, f32>::gnps()
+        .url("https://example.invalid/ALL_GNPS.mgf")
+        .target_directory(&target_directory)
+        .file_name("cached-invalid.mgf")
+        .force_download(false);
+    let path = builder.path();
+    let document = "this is cached but not a valid MGF document\n";
+    std::fs::write(&path, document).map_err(|source| MascotError::Io {
+        path: path.display().to_string(),
+        source,
+    })?;
+
+    let download = pollster::block_on(<GNPSBuilder<f32> as Dataset>::download(builder))?;
+    let _ = std::fs::remove_dir_all(&target_directory);
+
+    assert_eq!(download.path(), path.as_path());
+    assert_eq!(download.bytes(), document.len() as u64);
+
+    Ok(())
+}
+
+#[test]
 fn test_gnps_builder_rejects_empty_file_name() {
     assert!(matches!(
         pollster::block_on(MGFVec::<usize>::gnps().file_name("").load()),
@@ -1541,6 +1573,40 @@ END IONS
     );
     let spectra = gems_a10_load.into_spectra();
     assert_eq!(spectra.len(), 1);
+
+    Ok(())
+}
+
+#[test]
+fn test_gems_a10_builder_downloads_existing_file_without_loading() -> Result<()> {
+    let target_directory = std::env::temp_dir().join(format!(
+        "mascot-rs-gems-a10-download-test-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&target_directory);
+    std::fs::create_dir_all(&target_directory).map_err(|source| MascotError::Io {
+        path: target_directory.display().to_string(),
+        source,
+    })?;
+    let builder = MGFVec::<usize, f32>::gems_a10()
+        .target_directory(&target_directory)
+        .file_key("cached-invalid.mgf")
+        .force_download(false);
+    let path = builder.path_for_file_key("cached-invalid.mgf");
+    let document = "cached GeMS-A10 file that should not be parsed\n";
+    std::fs::write(&path, document).map_err(|source| MascotError::Io {
+        path: path.display().to_string(),
+        source,
+    })?;
+
+    let download = pollster::block_on(<GemsA10Builder<f32> as Dataset>::download(builder))?;
+    let _ = std::fs::remove_dir_all(&target_directory);
+
+    assert_eq!(download.files().len(), 1);
+    assert_eq!(download.files()[0].key(), "cached-invalid.mgf");
+    assert_eq!(download.files()[0].path(), path.as_path());
+    assert_eq!(download.files()[0].bytes(), document.len() as u64);
+    assert_eq!(download.bytes(), document.len() as u64);
 
     Ok(())
 }

@@ -1038,6 +1038,19 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
         self.mascot_generic_formats.iter_mut()
     }
 
+    /// Adds one MGF record to the end of the collection.
+    pub fn push(&mut self, mascot_generic_format: MascotGenericFormat<I, P>) {
+        self.mascot_generic_formats.push(mascot_generic_format);
+    }
+
+    /// Moves all records from another collection to the end of this one.
+    ///
+    /// The other collection is left empty.
+    pub fn append(&mut self, other: &mut Self) {
+        self.mascot_generic_formats
+            .append(&mut other.mascot_generic_formats);
+    }
+
     /// Returns the number of MGF records in the collection.
     #[must_use]
     pub const fn len(&self) -> usize {
@@ -1140,6 +1153,23 @@ impl<I, P: SpectrumFloat> FromIterator<MascotGenericFormat<I, P>> for MGFVec<I, 
     {
         Self {
             mascot_generic_formats: iter.into_iter().collect(),
+        }
+    }
+}
+
+impl<I, P: SpectrumFloat> Extend<MascotGenericFormat<I, P>> for MGFVec<I, P> {
+    fn extend<T>(&mut self, iter: T)
+    where
+        T: IntoIterator<Item = MascotGenericFormat<I, P>>,
+    {
+        self.mascot_generic_formats.extend(iter);
+    }
+}
+
+impl<I, P: SpectrumFloat> From<Vec<MascotGenericFormat<I, P>>> for MGFVec<I, P> {
+    fn from(mascot_generic_formats: Vec<MascotGenericFormat<I, P>>) -> Self {
+        Self {
+            mascot_generic_formats,
         }
     }
 }

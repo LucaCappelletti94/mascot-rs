@@ -43,9 +43,19 @@ pub mod prelude {
     #[cfg(feature = "std")]
     pub use crate::gems_a10::GemsA10Load;
     #[cfg(feature = "std")]
+    pub use crate::gems_a10::GemsA10Variant;
+    #[cfg(feature = "std")]
     pub use crate::gems_a10::GemsA10Verbosity;
     #[cfg(feature = "std")]
     pub use crate::gems_a10::GEMS_A10_MGF_PART_COUNT;
+    #[cfg(feature = "std")]
+    pub use crate::gems_a10::GEMS_A10_TOP_100_ZENODO_DOI;
+    #[cfg(feature = "std")]
+    pub use crate::gems_a10::GEMS_A10_TOP_100_ZENODO_RECORD_ID;
+    #[cfg(feature = "std")]
+    pub use crate::gems_a10::GEMS_A10_TOP_60_ZENODO_DOI;
+    #[cfg(feature = "std")]
+    pub use crate::gems_a10::GEMS_A10_TOP_60_ZENODO_RECORD_ID;
     #[cfg(feature = "std")]
     pub use crate::gems_a10::GEMS_A10_ZENODO_DOI;
     #[cfg(feature = "std")]

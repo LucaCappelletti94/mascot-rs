@@ -10,14 +10,67 @@ use crate::dataset::{Dataset, DatasetFuture};
 use crate::error::{MascotError, Result};
 use crate::mascot_generic_format::MGFVec;
 
-/// Zenodo record ID for the converted `GeMS-A10` MGF dataset.
-pub const GEMS_A10_ZENODO_RECORD_ID: u64 = 19_980_668;
+/// Zenodo record ID for the top-100 peaks `GeMS-A10` MGF dataset.
+pub const GEMS_A10_TOP_100_ZENODO_RECORD_ID: u64 = 19_980_668;
 
-/// DOI for the converted `GeMS-A10` MGF dataset.
-pub const GEMS_A10_ZENODO_DOI: &str = "10.5281/zenodo.19980668";
+/// DOI for the top-100 peaks `GeMS-A10` MGF dataset.
+pub const GEMS_A10_TOP_100_ZENODO_DOI: &str = "10.5281/zenodo.19980668";
+
+/// Zenodo record ID for the default top-100 peaks `GeMS-A10` MGF dataset.
+pub const GEMS_A10_ZENODO_RECORD_ID: u64 = GEMS_A10_TOP_100_ZENODO_RECORD_ID;
+
+/// DOI for the default top-100 peaks `GeMS-A10` MGF dataset.
+pub const GEMS_A10_ZENODO_DOI: &str = GEMS_A10_TOP_100_ZENODO_DOI;
+
+/// Zenodo record ID for the top-60 peaks `GeMS-A10` MGF dataset.
+pub const GEMS_A10_TOP_60_ZENODO_RECORD_ID: u64 = 20_001_888;
+
+/// DOI for the top-60 peaks `GeMS-A10` MGF dataset.
+pub const GEMS_A10_TOP_60_ZENODO_DOI: &str = "10.5281/zenodo.20001888";
 
 /// Number of compressed MGF part files in the converted `GeMS-A10` dataset.
 pub const GEMS_A10_MGF_PART_COUNT: u8 = 24;
+
+/// Published `GeMS-A10` MGF conversion variant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
+#[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
+#[cfg_attr(feature = "mem_size", mem_size(flat))]
+pub enum GemsA10Variant {
+    /// Original conversion capped to the top 100 fragment peaks per spectrum.
+    #[default]
+    Top100Peaks,
+    /// Smaller conversion capped to the top 60 fragment peaks per spectrum.
+    Top60Peaks,
+}
+
+impl GemsA10Variant {
+    /// Returns the Zenodo record ID for this published `GeMS-A10` variant.
+    #[must_use]
+    pub const fn record_id(self) -> u64 {
+        match self {
+            Self::Top100Peaks => GEMS_A10_TOP_100_ZENODO_RECORD_ID,
+            Self::Top60Peaks => GEMS_A10_TOP_60_ZENODO_RECORD_ID,
+        }
+    }
+
+    /// Returns the DOI for this published `GeMS-A10` variant.
+    #[must_use]
+    pub const fn doi(self) -> &'static str {
+        match self {
+            Self::Top100Peaks => GEMS_A10_TOP_100_ZENODO_DOI,
+            Self::Top60Peaks => GEMS_A10_TOP_60_ZENODO_DOI,
+        }
+    }
+
+    fn default_target_directory(self) -> PathBuf {
+        let directory = match self {
+            Self::Top100Peaks => "mascot-rs-gems-a10",
+            Self::Top60Peaks => "mascot-rs-gems-a10-top-60-peaks",
+        };
+        std::env::temp_dir().join(directory)
+    }
+}
 
 /// Verbosity used while downloading `GeMS-A10` data.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -45,8 +98,9 @@ pub struct GemsA10Builder<P: SpectrumFloat = f64> {
 #[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
 #[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
 struct GemsA10BuilderConfig {
-    record_id: u64,
+    variant: GemsA10Variant,
     target_directory: PathBuf,
+    target_directory_is_default: bool,
     file_keys: Vec<String>,
     verbosity: GemsA10Verbosity,
     force_download: bool,
@@ -57,10 +111,12 @@ struct GemsA10BuilderConfig {
 
 impl<P: SpectrumFloat> Default for GemsA10Builder<P> {
     fn default() -> Self {
+        let variant = GemsA10Variant::default();
         Self {
             config: GemsA10BuilderConfig {
-                record_id: GEMS_A10_ZENODO_RECORD_ID,
-                target_directory: std::env::temp_dir().join("mascot-rs-gems-a10"),
+                variant,
+                target_directory: variant.default_target_directory(),
+                target_directory_is_default: true,
                 file_keys: (0..GEMS_A10_MGF_PART_COUNT)
                     .map(Self::part_file_key_unchecked)
                     .collect(),
@@ -85,23 +141,55 @@ impl<P: SpectrumFloat> GemsA10Builder<P> {
         Ok(Self::part_file_key_unchecked(part))
     }
 
-    /// Sets the Zenodo record ID.
+    /// Selects the published `GeMS-A10` conversion variant.
+    ///
+    /// If the target directory was not set explicitly, changing the variant
+    /// also switches to a variant-specific cache directory so files with the
+    /// same Zenodo keys do not collide across variants.
     #[must_use]
-    pub const fn zenodo_record_id(mut self, record_id: u64) -> Self {
-        self.config.record_id = record_id;
+    pub fn variant(mut self, variant: GemsA10Variant) -> Self {
+        self.config.variant = variant;
+        if self.config.target_directory_is_default {
+            self.config.target_directory = variant.default_target_directory();
+        }
         self
     }
 
-    /// Returns the configured Zenodo record ID.
+    /// Selects the original top-100 peaks conversion.
+    #[must_use]
+    pub fn top_100_peaks(self) -> Self {
+        self.variant(GemsA10Variant::Top100Peaks)
+    }
+
+    /// Selects the top-60 peaks conversion.
+    #[must_use]
+    pub fn top_60_peaks(self) -> Self {
+        self.variant(GemsA10Variant::Top60Peaks)
+    }
+
+    /// Returns the selected published `GeMS-A10` conversion variant.
+    #[must_use]
+    pub const fn selected_variant(&self) -> GemsA10Variant {
+        self.config.variant
+    }
+
+    /// Returns the Zenodo record ID for the selected variant.
     #[must_use]
     pub const fn record_id(&self) -> u64 {
-        self.config.record_id
+        self.config.variant.record_id()
+    }
+
+    /// Returns the DOI for the selected published `GeMS-A10` conversion variant.
+    #[must_use]
+    pub const fn doi(&self) -> &'static str {
+        self.config.variant.doi()
     }
 
     /// Sets the directory where the dataset files are stored.
     #[must_use]
     pub fn target_directory<PathLike: AsRef<Path>>(mut self, target_directory: PathLike) -> Self {
         self.config.target_directory = target_directory.as_ref().to_path_buf();
+        self.config.target_directory_is_default = false;
         self
     }
 
@@ -345,16 +433,13 @@ impl<P: SpectrumFloat> GemsA10Builder<P> {
             })?;
         }
 
-        let selector = ArtifactSelector::file(RecordId(self.config.record_id), file_key);
+        let selector = ArtifactSelector::file(RecordId(self.record_id()), file_key);
         let progress = self.progress(file_key);
         let resolved = client
             .download_artifact_with_progress(&selector, path, progress)
             .await
             .map_err(|source| MascotError::Zenodo {
-                operation: format!(
-                    "download of record {} file {file_key}",
-                    self.config.record_id
-                ),
+                operation: format!("download of record {} file {file_key}", self.record_id()),
                 source: Box::new(source),
             })?;
         Ok(resolved.bytes_written)
@@ -547,7 +632,9 @@ mod tests {
     fn default_builder_selects_all_published_parts() {
         let builder = GemsA10Builder::<f64>::default();
 
+        assert_eq!(builder.selected_variant(), GemsA10Variant::Top100Peaks);
         assert_eq!(builder.record_id(), GEMS_A10_ZENODO_RECORD_ID);
+        assert_eq!(builder.doi(), GEMS_A10_ZENODO_DOI);
         assert_eq!(
             builder.selected_file_keys().len(),
             usize::from(GEMS_A10_MGF_PART_COUNT)
@@ -559,6 +646,36 @@ mod tests {
         assert_eq!(
             builder.selected_file_keys().last().map(String::as_str),
             Some("GeMS_A10.mgf.part-00023.mgf.zst")
+        );
+    }
+
+    #[test]
+    fn selects_top_60_peaks_variant() {
+        let builder = GemsA10Builder::<f64>::default().top_60_peaks();
+
+        assert_eq!(builder.selected_variant(), GemsA10Variant::Top60Peaks);
+        assert_eq!(builder.record_id(), GEMS_A10_TOP_60_ZENODO_RECORD_ID);
+        assert_eq!(builder.doi(), GEMS_A10_TOP_60_ZENODO_DOI);
+        assert!(builder
+            .paths()
+            .first()
+            .is_some_and(|path| path.display().to_string().contains("top-60-peaks")));
+        assert_eq!(
+            builder.selected_file_keys().last().map(String::as_str),
+            Some("GeMS_A10.mgf.part-00023.mgf.zst")
+        );
+    }
+
+    #[test]
+    fn variant_keeps_explicit_target_directory() {
+        let target_directory = PathBuf::from("custom-gems-cache");
+        let builder = GemsA10Builder::<f64>::default()
+            .target_directory(&target_directory)
+            .top_60_peaks();
+
+        assert_eq!(
+            builder.path_for_file_key("cached.mgf"),
+            target_directory.join("cached.mgf")
         );
     }
 

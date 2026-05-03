@@ -1491,8 +1491,11 @@ fn test_gnps_builder_rejects_empty_file_name() {
 fn test_gems_a10_builder_defaults_to_published_parts() -> Result<()> {
     let builder = MGFVec::<usize>::gems_a10();
 
+    assert_eq!(builder.selected_variant(), GemsA10Variant::Top100Peaks);
     assert_eq!(builder.record_id(), GEMS_A10_ZENODO_RECORD_ID);
     assert_eq!(GEMS_A10_ZENODO_DOI, "10.5281/zenodo.19980668");
+    assert_eq!(GEMS_A10_TOP_100_ZENODO_RECORD_ID, 19_980_668);
+    assert_eq!(GEMS_A10_TOP_100_ZENODO_DOI, "10.5281/zenodo.19980668");
     assert_eq!(
         builder.selected_file_keys().len(),
         usize::from(GEMS_A10_MGF_PART_COUNT)
@@ -1515,6 +1518,25 @@ fn test_gems_a10_builder_defaults_to_published_parts() -> Result<()> {
     ));
 
     Ok(())
+}
+
+#[test]
+fn test_gems_a10_builder_selects_top_60_variant() {
+    let builder = MGFVec::<usize>::gems_a10_top_60_peaks();
+
+    assert_eq!(builder.selected_variant(), GemsA10Variant::Top60Peaks);
+    assert_eq!(builder.record_id(), GEMS_A10_TOP_60_ZENODO_RECORD_ID);
+    assert_eq!(builder.doi(), GEMS_A10_TOP_60_ZENODO_DOI);
+    assert_eq!(GEMS_A10_TOP_60_ZENODO_RECORD_ID, 20_001_888);
+    assert_eq!(GEMS_A10_TOP_60_ZENODO_DOI, "10.5281/zenodo.20001888");
+    assert_eq!(
+        builder.selected_file_keys().len(),
+        usize::from(GEMS_A10_MGF_PART_COUNT)
+    );
+    assert_eq!(
+        builder.selected_file_keys().last().map(String::as_str),
+        Some("GeMS_A10.mgf.part-00023.mgf.zst")
+    );
 }
 
 #[test]

@@ -27,7 +27,6 @@ use crate::gems_a10::GemsA10Builder;
 use crate::gnps::GNPSBuilder;
 use crate::mascot_generic_format_builder::MascotGenericFormatBuilder;
 use crate::mascot_generic_format_metadata::{Instrument, IonMode, MascotGenericFormatMetadata};
-use crate::numeric;
 
 const MZ_FIELD: &str = "mass divided by charge ratio";
 const INTENSITY_FIELD: &str = "fragment intensity";
@@ -67,41 +66,88 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
             return Err(MascotError::EmptyPeakVectors);
         }
 
-        let peak_capacity = mass_divided_by_charge_ratios.len();
-        let mut spectrum =
-            GenericSpectrum::<P>::try_with_capacity(precursor_mz.to_f64(), peak_capacity)?;
-
-        let mut peaks = mass_divided_by_charge_ratios
+        let mut peaks = Vec::with_capacity(mass_divided_by_charge_ratios.len());
+        let mut peaks_are_strictly_increasing = true;
+        for (mz, intensity) in mass_divided_by_charge_ratios
             .into_iter()
             .zip(fragment_intensities)
-            .collect::<Vec<_>>();
-        for (mz, intensity) in &peaks {
-            let mz = mz.to_f64();
-            numeric::validate_positive_f64(mz, MZ_FIELD, &mz.to_string())?;
-            let intensity = intensity.to_f64();
-            numeric::validate_positive_f64(intensity, INTENSITY_FIELD, &intensity.to_string())?;
+        {
+            Self::validate_positive_precision(mz, MZ_FIELD)?;
+            Self::validate_positive_precision(intensity, INTENSITY_FIELD)?;
+            Self::push_peak_tracking_order(
+                &mut peaks,
+                &mut peaks_are_strictly_increasing,
+                mz,
+                intensity,
+            );
         }
-        peaks.sort_by(|(left_mz, _), (right_mz, _)| left_mz.to_f64().total_cmp(&right_mz.to_f64()));
 
-        let mut merged_peaks: Vec<(P, P)> = Vec::with_capacity(peaks.len());
-        for (mz, intensity) in peaks {
-            if let Some((last_mz, last_intensity)) = merged_peaks.last_mut() {
-                if last_mz.to_f64().to_bits() == mz.to_f64().to_bits() {
-                    *last_intensity = P::from_f64(last_intensity.to_f64() + intensity.to_f64())
-                        .ok_or_else(|| MascotError::UnrepresentablePrecisionField {
-                            field: "fragment intensity",
-                            line: intensity.to_f64().to_string(),
-                        })?;
-                    continue;
-                }
+        Self::from_validated_peaks(metadata, precursor_mz, peaks, peaks_are_strictly_increasing)
+    }
+
+    /// Adds a peak to a temporary buffer and tracks whether m/z remains sorted.
+    pub(crate) fn push_peak_tracking_order(
+        peaks: &mut Vec<(P, P)>,
+        peaks_are_strictly_increasing: &mut bool,
+        mz: P,
+        intensity: P,
+    ) {
+        if *peaks_are_strictly_increasing {
+            if let Some((last_mz, _)) = peaks.last() {
+                *peaks_are_strictly_increasing = mz.to_f64() > last_mz.to_f64();
             }
-            merged_peaks.push((mz, intensity));
+        }
+        peaks.push((mz, intensity));
+    }
+
+    /// Builds a record from already-positive, precision-validated peaks.
+    pub(crate) fn from_validated_peaks(
+        metadata: MascotGenericFormatMetadata<I>,
+        precursor_mz: P,
+        mut peaks: Vec<(P, P)>,
+        peaks_are_strictly_increasing: bool,
+    ) -> Result<Self> {
+        if peaks.is_empty() {
+            return Err(MascotError::EmptyPeakVectors);
         }
 
-        for (mz, intensity) in merged_peaks {
-            spectrum.add_peak(mz, intensity)?;
+        let mut spectrum =
+            GenericSpectrum::<P>::try_with_capacity(precursor_mz.to_f64(), peaks.len())?;
+        if peaks_are_strictly_increasing {
+            for (mz, intensity) in peaks {
+                spectrum.add_peak(mz, intensity)?;
+            }
+            return Self::from_spectrum(metadata, spectrum);
         }
 
+        peaks.sort_by(|(left_mz, _), (right_mz, _)| left_mz.to_f64().total_cmp(&right_mz.to_f64()));
+        let mut peaks = peaks.into_iter();
+        let Some((mut current_mz, mut current_intensity)) = peaks.next() else {
+            return Err(MascotError::EmptyPeakVectors);
+        };
+
+        for (mz, intensity) in peaks {
+            if current_mz.to_f64().to_bits() == mz.to_f64().to_bits() {
+                current_intensity = P::from_f64(current_intensity.to_f64() + intensity.to_f64())
+                    .ok_or_else(|| MascotError::UnrepresentablePrecisionField {
+                        field: INTENSITY_FIELD,
+                        line: intensity.to_f64().to_string(),
+                    })?;
+            } else {
+                spectrum.add_peak(current_mz, current_intensity)?;
+                current_mz = mz;
+                current_intensity = intensity;
+            }
+        }
+        spectrum.add_peak(current_mz, current_intensity)?;
+
+        Self::from_spectrum(metadata, spectrum)
+    }
+
+    fn from_spectrum(
+        metadata: MascotGenericFormatMetadata<I>,
+        spectrum: GenericSpectrum<P>,
+    ) -> Result<Self> {
         let stored_precursor_mz = spectrum.precursor_mz().to_f64();
         let first_level_min_mz = spectrum.mz_nth(0).to_f64();
         if metadata.level() == 1 && stored_precursor_mz.to_bits() != first_level_min_mz.to_bits() {
@@ -112,6 +158,25 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
         }
 
         Ok(Self { metadata, spectrum })
+    }
+
+    fn validate_positive_precision(value: P, field: &'static str) -> Result<()> {
+        let value = value.to_f64();
+        if !value.is_finite() {
+            return Err(MascotError::NonFiniteField {
+                field,
+                line: value.to_string(),
+            });
+        }
+
+        if value <= 0.0 {
+            return Err(MascotError::NonPositiveField {
+                field,
+                line: value.to_string(),
+            });
+        }
+
+        Ok(())
     }
 
     /// Returns the feature ID of the metadata, if present.

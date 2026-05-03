@@ -1,5 +1,5 @@
 use alloc::{string::ToString, vec::Vec};
-use core::{fmt::Debug, marker::PhantomData, ops::Add, str::FromStr};
+use core::{fmt::Debug, ops::Add, str::FromStr};
 
 use crate::mascot_generic_format::MascotGenericFormat;
 use crate::mascot_generic_format_metadata_builder::MascotGenericFormatMetadataBuilder;
@@ -13,20 +13,18 @@ const INTENSITY_FIELD: &str = "fragment intensity";
 /// A builder for [`MascotGenericFormat`].
 pub struct MascotGenericFormatBuilder<I, P: SpectrumFloat = f64> {
     metadata_builder: MascotGenericFormatMetadataBuilder<I, P>,
-    mass_divided_by_charge_ratios: Vec<P>,
-    fragment_intensities: Vec<P>,
+    peaks: Vec<(P, P)>,
+    peaks_are_strictly_increasing: bool,
     section_open: bool,
-    precision: PhantomData<P>,
 }
 
 impl<I, P: SpectrumFloat> Default for MascotGenericFormatBuilder<I, P> {
     fn default() -> Self {
         Self {
             metadata_builder: MascotGenericFormatMetadataBuilder::default(),
-            mass_divided_by_charge_ratios: Vec::new(),
-            fragment_intensities: Vec::new(),
+            peaks: Vec::new(),
+            peaks_are_strictly_increasing: true,
             section_open: false,
-            precision: PhantomData,
         }
     }
 }
@@ -49,11 +47,11 @@ where
     pub(super) fn build(self) -> Result<MascotGenericFormat<I, P>> {
         let (metadata, precursor_mz) = self.metadata_builder.build()?;
 
-        MascotGenericFormat::new(
+        MascotGenericFormat::from_validated_peaks(
             metadata,
             precursor_mz,
-            self.mass_divided_by_charge_ratios,
-            self.fragment_intensities,
+            self.peaks,
+            self.peaks_are_strictly_increasing,
         )
     }
 }
@@ -83,25 +81,22 @@ where
                 numeric::parse_positive_spectrum_float(value, INTENSITY_FIELD, line)
             })?;
 
-        self.mass_divided_by_charge_ratios
-            .push(mass_divided_by_charge_ratio);
-        self.fragment_intensities.push(fragment_intensity);
+        MascotGenericFormat::<I, P>::push_peak_tracking_order(
+            &mut self.peaks,
+            &mut self.peaks_are_strictly_increasing,
+            mass_divided_by_charge_ratio,
+            fragment_intensity,
+        );
 
         Ok(())
     }
 
     pub(super) const fn can_build(&self) -> bool {
-        !self.section_open
-            && self.metadata_builder.can_build()
-            && self.mass_divided_by_charge_ratios.len() == self.fragment_intensities.len()
-            && !self.mass_divided_by_charge_ratios.is_empty()
+        !self.section_open && self.metadata_builder.can_build() && !self.peaks.is_empty()
     }
 
     pub(super) const fn can_skip_empty_section(&self) -> bool {
-        !self.section_open
-            && self.metadata_builder.can_build()
-            && self.mass_divided_by_charge_ratios.is_empty()
-            && self.fragment_intensities.is_empty()
+        !self.section_open && self.metadata_builder.can_build() && self.peaks.is_empty()
     }
 
     /// Digests the given line.

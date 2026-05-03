@@ -28,9 +28,6 @@ use crate::gnps::GNPSBuilder;
 use crate::mascot_generic_format_builder::MascotGenericFormatBuilder;
 use crate::mascot_generic_format_metadata::{Instrument, IonMode, MascotGenericFormatMetadata};
 
-const MZ_FIELD: &str = "mass divided by charge ratio";
-const INTENSITY_FIELD: &str = "fragment intensity";
-
 /// A single Mascot Generic Format ion block with metadata and spectra.
 ///
 /// When used as a [`Spectrum`], the record exposes the peaks from this MGF ion
@@ -72,8 +69,6 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
             .into_iter()
             .zip(fragment_intensities)
         {
-            Self::validate_positive_precision(mz, MZ_FIELD)?;
-            Self::validate_positive_precision(intensity, INTENSITY_FIELD)?;
             Self::push_peak_tracking_order(
                 &mut peaks,
                 &mut peaks_are_strictly_increasing,
@@ -82,7 +77,7 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
             );
         }
 
-        Self::from_validated_peaks(metadata, precursor_mz, peaks, peaks_are_strictly_increasing)
+        Self::from_parsed_peaks(metadata, precursor_mz, peaks, peaks_are_strictly_increasing)
     }
 
     /// Adds a peak to a temporary buffer and tracks whether m/z remains sorted.
@@ -100,8 +95,8 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
         peaks.push((mz, intensity));
     }
 
-    /// Builds a record from already-positive, precision-validated peaks.
-    pub(crate) fn from_validated_peaks(
+    /// Builds a record from parsed peaks and lets [`GenericSpectrum`] validate them.
+    pub(crate) fn from_parsed_peaks(
         metadata: MascotGenericFormatMetadata<I>,
         precursor_mz: P,
         mut peaks: Vec<(P, P)>,
@@ -128,11 +123,8 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
 
         for (mz, intensity) in peaks {
             if current_mz.to_f64().to_bits() == mz.to_f64().to_bits() {
-                current_intensity = P::from_f64(current_intensity.to_f64() + intensity.to_f64())
-                    .ok_or_else(|| MascotError::UnrepresentablePrecisionField {
-                        field: INTENSITY_FIELD,
-                        line: intensity.to_f64().to_string(),
-                    })?;
+                current_intensity =
+                    P::from_f64_lossy(current_intensity.to_f64() + intensity.to_f64());
             } else {
                 spectrum.add_peak(current_mz, current_intensity)?;
                 current_mz = mz;
@@ -158,25 +150,6 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
         }
 
         Ok(Self { metadata, spectrum })
-    }
-
-    fn validate_positive_precision(value: P, field: &'static str) -> Result<()> {
-        let value = value.to_f64();
-        if !value.is_finite() {
-            return Err(MascotError::NonFiniteField {
-                field,
-                line: value.to_string(),
-            });
-        }
-
-        if value <= 0.0 {
-            return Err(MascotError::NonPositiveField {
-                field,
-                line: value.to_string(),
-            });
-        }
-
-        Ok(())
     }
 
     /// Returns the feature ID of the metadata, if present.

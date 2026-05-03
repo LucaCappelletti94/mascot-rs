@@ -27,6 +27,20 @@ pub fn parse_positive_spectrum_float<P: SpectrumFloat>(
     Ok(value)
 }
 
+pub fn parse_spectrum_float_lossy<P: SpectrumFloat>(
+    value: &str,
+    field: &'static str,
+    line: &str,
+) -> Result<P> {
+    value
+        .parse::<f64>()
+        .map(P::from_f64_lossy)
+        .map_err(|_| MascotError::ParseField {
+            field,
+            line: line.to_string(),
+        })
+}
+
 pub fn validate_positive_f64(value: f64, field: &'static str, line: &str) -> Result<()> {
     if !value.is_finite() {
         return Err(MascotError::NonFiniteField {

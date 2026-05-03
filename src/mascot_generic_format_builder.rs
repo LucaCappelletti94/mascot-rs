@@ -47,7 +47,7 @@ where
     pub(super) fn build(self) -> Result<MascotGenericFormat<I, P>> {
         let (metadata, precursor_mz) = self.metadata_builder.build()?;
 
-        MascotGenericFormat::from_validated_peaks(
+        MascotGenericFormat::from_parsed_peaks(
             metadata,
             precursor_mz,
             self.peaks,
@@ -69,7 +69,7 @@ where
                 field: MZ_FIELD,
                 line: line.to_string(),
             })
-            .and_then(|value| numeric::parse_positive_spectrum_float(value, MZ_FIELD, line))?;
+            .and_then(|value| numeric::parse_spectrum_float_lossy(value, MZ_FIELD, line))?;
 
         let fragment_intensity = split
             .next()
@@ -77,9 +77,7 @@ where
                 field: INTENSITY_FIELD,
                 line: line.to_string(),
             })
-            .and_then(|value| {
-                numeric::parse_positive_spectrum_float(value, INTENSITY_FIELD, line)
-            })?;
+            .and_then(|value| numeric::parse_spectrum_float_lossy(value, INTENSITY_FIELD, line))?;
 
         MascotGenericFormat::<I, P>::push_peak_tracking_order(
             &mut self.peaks,
@@ -150,19 +148,25 @@ mod tests {
 
     #[test]
     fn rejects_invalid_peak_lines() -> Result<()> {
-        for line in [
-            " ",
-            "100.0",
-            "not-a-number 1.0",
-            "100.0 not-a-number",
-            "NaN 1.0",
-            "0.0 1.0",
-            "100.0 NaN",
-            "100.0 0.0",
-        ] {
+        for line in [" ", "100.0", "not-a-number 1.0", "100.0 not-a-number"] {
             let mut builder = MascotGenericFormatBuilder::<usize>::default();
             builder.digest_line("BEGIN IONS")?;
             assert!(builder.digest_line(line).is_err());
+        }
+
+        for line in ["NaN 1.0", "0.0 1.0", "100.0 NaN", "100.0 0.0"] {
+            let mut builder = MascotGenericFormatBuilder::<usize>::default();
+            builder.digest_line("BEGIN IONS")?;
+            builder.digest_line("PEPMASS=500.0")?;
+            builder.digest_line("MSLEVEL=2")?;
+            builder.digest_line("SCANS=-1")?;
+            builder.digest_line("CHARGE=1")?;
+            builder.digest_line(line)?;
+            builder.digest_line("END IONS")?;
+            assert!(matches!(
+                builder.build(),
+                Err(MascotError::SpectrumMutation(_))
+            ));
         }
 
         Ok(())

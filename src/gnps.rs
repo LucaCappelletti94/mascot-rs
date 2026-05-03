@@ -1,12 +1,10 @@
 use core::marker::PhantomData;
-use std::io::{BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
-use indicatif::ProgressBar;
 use mass_spectrometry::prelude::SpectrumFloat;
 
-use crate::dataset::{Dataset, DatasetFuture};
-use crate::error::{MascotError, Result};
+use crate::dataset::{Dataset, DatasetFuture, SingleFileDatasetConfig, SingleFileDatasetDownload};
+use crate::error::Result;
 use crate::mascot_generic_format::MGFVec;
 
 /// Current GNPS endpoint for the aggregated public MGF spectral library.
@@ -14,49 +12,24 @@ pub const GNPS_ALL_MGF_URL: &str = "https://external.gnps2.org/gnpslibrary/ALL_G
 
 const GNPS_ALL_MGF_FILE_NAME: &str = "ALL_GNPS.mgf";
 
-/// Verbosity used while downloading GNPS data.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
-#[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
-#[cfg_attr(feature = "mem_size", mem_size(flat))]
-pub enum GNPSVerbosity {
-    /// Do not emit progress information.
-    #[default]
-    Quiet,
-    /// Use an [`indicatif`] progress bar while downloading.
-    Indicatif,
-}
-
 /// Builder for downloading and loading the GNPS MGF library.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
 #[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
 pub struct GNPSBuilder<P: SpectrumFloat = f64> {
-    config: GNPSBuilderConfig,
+    config: SingleFileDatasetConfig,
     precision: PhantomData<fn() -> P>,
-}
-
-#[derive(Debug, Clone)]
-#[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
-#[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
-struct GNPSBuilderConfig {
-    url: String,
-    target_directory: PathBuf,
-    file_name: String,
-    verbosity: GNPSVerbosity,
-    force_download: bool,
 }
 
 impl<P: SpectrumFloat> Default for GNPSBuilder<P> {
     fn default() -> Self {
         Self {
-            config: GNPSBuilderConfig {
-                url: GNPS_ALL_MGF_URL.to_string(),
-                target_directory: std::env::temp_dir().join("mascot-rs-gnps"),
-                file_name: GNPS_ALL_MGF_FILE_NAME.to_string(),
-                verbosity: GNPSVerbosity::Quiet,
-                force_download: false,
-            },
+            config: SingleFileDatasetConfig::new(
+                GNPS_ALL_MGF_URL,
+                std::env::temp_dir().join("mascot-rs-gnps"),
+                GNPS_ALL_MGF_FILE_NAME,
+                "Downloading GNPS MGF library",
+            ),
             precision: PhantomData,
         }
     }
@@ -66,42 +39,42 @@ impl<P: SpectrumFloat> GNPSBuilder<P> {
     /// Sets the source URL.
     #[must_use]
     pub fn url<S: Into<String>>(mut self, url: S) -> Self {
-        self.config.url = url.into();
+        self.config.set_url(url);
         self
     }
 
     /// Sets the directory where the GNPS MGF file is stored.
     #[must_use]
     pub fn target_directory<PathLike: AsRef<Path>>(mut self, target_directory: PathLike) -> Self {
-        self.config.target_directory = target_directory.as_ref().to_path_buf();
+        self.config.set_target_directory(target_directory);
         self
     }
 
     /// Sets the downloaded file name inside the target directory.
     #[must_use]
     pub fn file_name<S: Into<String>>(mut self, file_name: S) -> Self {
-        self.config.file_name = file_name.into();
+        self.config.set_file_name(file_name);
         self
     }
 
-    /// Sets download verbosity.
+    /// Enables download progress reporting.
     #[must_use]
-    pub const fn verbosity(mut self, verbosity: GNPSVerbosity) -> Self {
-        self.config.verbosity = verbosity;
+    pub const fn verbose(mut self) -> Self {
+        self.config.enable_verbose();
         self
     }
 
     /// Sets whether to redownload the library even if the target file exists.
     #[must_use]
     pub const fn force_download(mut self, force_download: bool) -> Self {
-        self.config.force_download = force_download;
+        self.config.set_force_download(force_download);
         self
     }
 
     /// Returns the configured download path.
     #[must_use]
     pub fn path(&self) -> PathBuf {
-        self.config.target_directory.join(&self.config.file_name)
+        self.config.path()
     }
 
     /// Downloads the GNPS library if needed without loading the MGF records.
@@ -112,35 +85,7 @@ impl<P: SpectrumFloat> GNPSBuilder<P> {
     /// inspected, or if the remote library cannot be downloaded.
     pub async fn download(self) -> Result<GNPSDownload> {
         std::future::ready(()).await;
-
-        if self.config.file_name.is_empty() {
-            return Err(MascotError::EmptyFilename);
-        }
-
-        let path = self.path();
-        std::fs::create_dir_all(&self.config.target_directory).map_err(|source| {
-            MascotError::Io {
-                path: self.config.target_directory.display().to_string(),
-                source,
-            }
-        })?;
-
-        let bytes = if !self.config.force_download
-            && path.try_exists().map_err(|source| MascotError::Io {
-                path: path.display().to_string(),
-                source,
-            })? {
-            std::fs::metadata(&path)
-                .map_err(|source| MascotError::Io {
-                    path: path.display().to_string(),
-                    source,
-                })?
-                .len()
-        } else {
-            self.download_to_path(&path)?
-        };
-
-        Ok(GNPSDownload { path, bytes })
+        self.config.download().map(GNPSDownload::from_single_file)
     }
 
     /// Downloads the GNPS library if needed and loads the valid MGF records.
@@ -162,77 +107,6 @@ impl<P: SpectrumFloat> GNPSBuilder<P> {
             path: download.path,
             bytes: download.bytes,
         })
-    }
-
-    fn download_to_path(&self, path: &Path) -> Result<u64> {
-        let mut response =
-            ureq::get(&self.config.url)
-                .call()
-                .map_err(|source| MascotError::Download {
-                    url: self.config.url.clone(),
-                    source: Box::new(source),
-                })?;
-        let progress_bar = self.progress_bar(Self::content_length(&response));
-        let file = std::fs::File::create(path).map_err(|source| MascotError::Io {
-            path: path.display().to_string(),
-            source,
-        })?;
-        let mut writer = BufWriter::new(file);
-        let mut reader = response.body_mut().as_reader();
-        let mut buffer = vec![0_u8; 1024 * 1024].into_boxed_slice();
-        let mut downloaded_bytes = 0_u64;
-
-        loop {
-            let read_bytes = reader.read(&mut buffer).map_err(|source| MascotError::Io {
-                path: path.display().to_string(),
-                source,
-            })?;
-            if read_bytes == 0 {
-                break;
-            }
-            writer
-                .write_all(&buffer[..read_bytes])
-                .map_err(|source| MascotError::Io {
-                    path: path.display().to_string(),
-                    source,
-                })?;
-            let read_bytes = u64::try_from(read_bytes).map_err(|_| MascotError::Io {
-                path: path.display().to_string(),
-                source: std::io::Error::other("download chunk length does not fit in u64"),
-            })?;
-            downloaded_bytes += read_bytes;
-            if let Some(progress_bar) = &progress_bar {
-                progress_bar.inc(read_bytes);
-            }
-        }
-
-        writer.flush().map_err(|source| MascotError::Io {
-            path: path.display().to_string(),
-            source,
-        })?;
-        if let Some(progress_bar) = progress_bar {
-            progress_bar.finish_and_clear();
-        }
-
-        Ok(downloaded_bytes)
-    }
-
-    fn progress_bar(&self, content_length: Option<u64>) -> Option<ProgressBar> {
-        if self.config.verbosity == GNPSVerbosity::Quiet {
-            return None;
-        }
-
-        let progress_bar = content_length.map_or_else(ProgressBar::new_spinner, ProgressBar::new);
-        progress_bar.set_message("Downloading GNPS MGF library");
-        Some(progress_bar)
-    }
-
-    fn content_length(response: &ureq::http::Response<ureq::Body>) -> Option<u64> {
-        response
-            .headers()
-            .get("content-length")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.parse::<u64>().ok())
     }
 
     fn load_path(path: &Path) -> Result<(MGFVec<usize, P>, usize)> {
@@ -266,6 +140,11 @@ pub struct GNPSDownload {
 }
 
 impl GNPSDownload {
+    fn from_single_file(download: SingleFileDatasetDownload) -> Self {
+        let (path, bytes) = download.into_parts();
+        Self { path, bytes }
+    }
+
     /// Returns the local path used for the GNPS MGF file.
     #[must_use]
     pub fn path(&self) -> &Path {
@@ -325,41 +204,5 @@ impl<P: SpectrumFloat> GNPSLoad<P> {
 impl<P: SpectrumFloat> AsRef<MGFVec<usize, P>> for GNPSLoad<P> {
     fn as_ref(&self) -> &MGFVec<usize, P> {
         self.spectra()
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn progress_bar_respects_verbosity() {
-        let quiet = GNPSBuilder::<f64>::default();
-        assert!(quiet.progress_bar(Some(10)).is_none());
-
-        let progress_bar = quiet.verbosity(GNPSVerbosity::Indicatif).progress_bar(None);
-        assert!(progress_bar.is_some());
-        if let Some(progress_bar) = progress_bar {
-            progress_bar.finish_and_clear();
-        }
-    }
-
-    #[test]
-    fn parses_content_length_header() -> std::result::Result<(), Box<dyn std::error::Error>> {
-        let response = ureq::http::Response::builder()
-            .header("content-length", "42")
-            .body(ureq::Body::builder().data(Vec::new()))?;
-        assert_eq!(GNPSBuilder::<f64>::content_length(&response), Some(42));
-
-        let response = ureq::http::Response::builder()
-            .header("content-length", "not-a-number")
-            .body(ureq::Body::builder().data(Vec::new()))?;
-        assert_eq!(GNPSBuilder::<f64>::content_length(&response), None);
-
-        let response =
-            ureq::http::Response::builder().body(ureq::Body::builder().data(Vec::new()))?;
-        assert_eq!(GNPSBuilder::<f64>::content_length(&response), None);
-
-        Ok(())
     }
 }

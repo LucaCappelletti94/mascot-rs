@@ -27,6 +27,8 @@ use crate::gems_a10::GemsA10Builder;
 use crate::gnps::GNPSBuilder;
 use crate::mascot_generic_format_builder::MascotGenericFormatBuilder;
 use crate::mascot_generic_format_metadata::{Instrument, IonMode, MascotGenericFormatMetadata};
+#[cfg(feature = "std")]
+use crate::mass_spec_gym::MassSpecGymBuilder;
 
 /// A single Mascot Generic Format ion block with metadata and spectra.
 ///
@@ -1114,6 +1116,12 @@ impl<P: SpectrumFloat> MGFVec<usize, P> {
     #[must_use]
     pub fn gnps() -> GNPSBuilder<P> {
         GNPSBuilder::default()
+    }
+
+    /// Returns a builder for the `MassSpecGym` benchmark MGF dataset.
+    #[must_use]
+    pub fn mass_spec_gym() -> MassSpecGymBuilder<P> {
+        MassSpecGymBuilder::default()
     }
 }
 

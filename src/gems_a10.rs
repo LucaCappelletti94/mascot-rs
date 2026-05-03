@@ -83,19 +83,6 @@ impl GemsA10Variant {
     }
 }
 
-/// Verbosity used while downloading `GeMS-A10` data.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
-#[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
-#[cfg_attr(feature = "mem_size", mem_size(flat))]
-pub enum GemsA10Verbosity {
-    /// Do not emit progress information.
-    #[default]
-    Quiet,
-    /// Use an [`indicatif`] progress bar while downloading.
-    Indicatif,
-}
-
 /// Builder for downloading and loading the converted `GeMS-A10` MGF dataset.
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
@@ -113,7 +100,7 @@ struct GemsA10BuilderConfig {
     target_directory: PathBuf,
     target_directory_is_default: bool,
     file_keys: Vec<String>,
-    verbosity: GemsA10Verbosity,
+    verbose: bool,
     force_download: bool,
     token: Option<String>,
     request_timeout_nanos: Option<u64>,
@@ -131,7 +118,7 @@ impl<P: SpectrumFloat> Default for GemsA10Builder<P> {
                 file_keys: (0..GEMS_A10_MGF_PART_COUNT)
                     .map(Self::part_file_key_unchecked)
                     .collect(),
-                verbosity: GemsA10Verbosity::Quiet,
+                verbose: false,
                 force_download: false,
                 token: None,
                 request_timeout_nanos: None,
@@ -267,10 +254,10 @@ impl<P: SpectrumFloat> GemsA10Builder<P> {
         &self.config.file_keys
     }
 
-    /// Sets download verbosity.
+    /// Enables download progress reporting.
     #[must_use]
-    pub const fn verbosity(mut self, verbosity: GemsA10Verbosity) -> Self {
-        self.config.verbosity = verbosity;
+    pub const fn verbose(mut self) -> Self {
+        self.config.verbose = true;
         self
     }
 
@@ -463,14 +450,12 @@ impl<P: SpectrumFloat> GemsA10Builder<P> {
     }
 
     fn progress(&self, file_key: &str) -> GemsA10Progress {
-        match self.config.verbosity {
-            GemsA10Verbosity::Quiet => GemsA10Progress::Quiet,
-            GemsA10Verbosity::Indicatif => {
-                let progress_bar = ProgressBar::new_spinner();
-                progress_bar.set_message(format!("Downloading {file_key}"));
-                GemsA10Progress::Indicatif(progress_bar)
-            }
+        if self.config.verbose {
+            let progress_bar = ProgressBar::new_spinner();
+            progress_bar.set_message(format!("Downloading {file_key}"));
+            return GemsA10Progress::Indicatif(progress_bar);
         }
+        GemsA10Progress::Quiet
     }
 
     const fn validate_part(part: u8) -> Result<()> {

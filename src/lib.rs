@@ -21,6 +21,9 @@ mod mascot_generic_format_builder;
 pub mod mascot_generic_format_metadata;
 #[doc(hidden)]
 mod mascot_generic_format_metadata_builder;
+/// `MassSpecGym` benchmark dataset helpers.
+#[cfg(feature = "std")]
+pub mod mass_spec_gym;
 #[doc(hidden)]
 mod numeric;
 
@@ -44,8 +47,6 @@ pub mod prelude {
     pub use crate::gems_a10::GemsA10Load;
     #[cfg(feature = "std")]
     pub use crate::gems_a10::GemsA10Variant;
-    #[cfg(feature = "std")]
-    pub use crate::gems_a10::GemsA10Verbosity;
     #[cfg(feature = "std")]
     pub use crate::gems_a10::GEMS_A10_MGF_PART_COUNT;
     #[cfg(feature = "std")]
@@ -71,8 +72,6 @@ pub mod prelude {
     #[cfg(feature = "std")]
     pub use crate::gnps::GNPSLoad;
     #[cfg(feature = "std")]
-    pub use crate::gnps::GNPSVerbosity;
-    #[cfg(feature = "std")]
     pub use crate::gnps::GNPS_ALL_MGF_URL;
     pub use crate::mascot_generic_format::MGFIter;
     pub use crate::mascot_generic_format::MGFVec;
@@ -80,6 +79,18 @@ pub mod prelude {
     pub use crate::mascot_generic_format_metadata::Instrument;
     pub use crate::mascot_generic_format_metadata::IonMode;
     pub use crate::mascot_generic_format_metadata::MascotGenericFormatMetadata;
+    #[cfg(feature = "std")]
+    pub use crate::mass_spec_gym::MassSpecGymBuilder;
+    #[cfg(feature = "std")]
+    pub use crate::mass_spec_gym::MassSpecGymDownload;
+    #[cfg(feature = "std")]
+    pub use crate::mass_spec_gym::MassSpecGymLoad;
+    #[cfg(feature = "std")]
+    pub use crate::mass_spec_gym::MASS_SPEC_GYM_MGF_FILE_NAME;
+    #[cfg(feature = "std")]
+    pub use crate::mass_spec_gym::MASS_SPEC_GYM_MGF_URL;
+    #[cfg(feature = "std")]
+    pub use crate::mass_spec_gym::MASS_SPEC_GYM_SPECTRA_COUNT;
     pub use mass_spectrometry::prelude::{
         GenericSpectrum, Spectra, Spectrum, SpectrumAlloc, SpectrumFloat, SpectrumMut,
     };

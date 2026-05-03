@@ -1381,7 +1381,7 @@ fn test_gnps_builder_loads_existing_downloaded_file() -> Result<()> {
         .url("https://example.invalid/ALL_GNPS.mgf")
         .target_directory(&target_directory)
         .file_name("cached.mgf")
-        .verbosity(GNPSVerbosity::Indicatif)
+        .verbose()
         .force_download(false);
     let path = builder.path();
     let document = concat!(
@@ -1488,6 +1488,128 @@ fn test_gnps_builder_rejects_empty_file_name() {
 }
 
 #[test]
+fn test_mass_spec_gym_builder_loads_existing_downloaded_file() -> Result<()> {
+    let target_directory = std::env::temp_dir().join(format!(
+        "mascot-rs-mass-spec-gym-test-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&target_directory);
+    std::fs::create_dir_all(&target_directory).map_err(|source| MascotError::Io {
+        path: target_directory.display().to_string(),
+        source,
+    })?;
+    let builder = MGFVec::<usize, f32>::mass_spec_gym()
+        .url("https://example.invalid/MassSpecGym.mgf")
+        .target_directory(&target_directory)
+        .verbose()
+        .force_download(false);
+    let path = builder.path();
+    let document = r"BEGIN IONS
+IDENTIFIER=MassSpecGymID0000001
+SMILES=CCO
+INCHIKEY=LFQSCWFLJHTTHZ
+FORMULA=C2H6O
+PRECURSOR_FORMULA=C2H7O
+PARENT_MASS=46.041865
+PRECURSOR_MZ=47.049141
+ADDUCT=[M+H]+
+INSTRUMENT_TYPE=Orbitrap
+COLLISION_ENERGY=20.0
+FOLD=train
+SIMULATION_CHALLENGE=True
+31.0184 1.0
+45.0335 0.5
+END IONS
+BEGIN IONS
+IDENTIFIER=MassSpecGymID0000002
+PRECURSOR_MZ=0.0
+ADDUCT=[M-H]-
+INSTRUMENT_TYPE=QTOF
+50.0 1.0
+END IONS
+";
+    std::fs::write(&path, document).map_err(|source| MascotError::Io {
+        path: path.display().to_string(),
+        source,
+    })?;
+    let expected_bytes = document.len() as u64;
+
+    let load = pollster::block_on(builder.load())?;
+    let _ = std::fs::remove_dir_all(&target_directory);
+
+    assert!(load.mem_size(SizeFlags::default()) >= std::mem::size_of_val(&load));
+    assert_eq!(load.spectra().len(), 1);
+    assert_eq!(load.as_ref().len(), 1);
+    assert_eq!(load.skipped_records(), 1);
+    assert_eq!(load.path(), path.as_path());
+    assert_eq!(load.bytes(), expected_bytes);
+    assert_eq!(load.spectra()[0].feature_id(), Some(1));
+    assert_eq!(load.spectra()[0].level(), 2);
+    assert_eq!(load.spectra()[0].charge(), 1);
+    assert_eq!(load.spectra()[0].ion_mode(), Some(IonMode::Positive));
+    assert_eq!(
+        load.spectra()[0].source_instrument(),
+        Some(Instrument::Orbitrap)
+    );
+    assert_eq!(
+        load.spectra()[0]
+            .metadata()
+            .arbitrary_metadata_value("IDENTIFIER"),
+        Some("MassSpecGymID0000001")
+    );
+    assert_eq!(
+        load.spectra()[0]
+            .metadata()
+            .arbitrary_metadata_value("ADDUCT"),
+        Some("[M+H]+")
+    );
+    let spectra = load.into_spectra();
+    assert_eq!(spectra.len(), 1);
+
+    Ok(())
+}
+
+#[test]
+fn test_mass_spec_gym_builder_downloads_existing_file_without_loading() -> Result<()> {
+    let target_directory = std::env::temp_dir().join(format!(
+        "mascot-rs-mass-spec-gym-download-test-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&target_directory);
+    std::fs::create_dir_all(&target_directory).map_err(|source| MascotError::Io {
+        path: target_directory.display().to_string(),
+        source,
+    })?;
+    let builder = MGFVec::<usize, f32>::mass_spec_gym()
+        .url("https://example.invalid/MassSpecGym.mgf")
+        .target_directory(&target_directory)
+        .file_name("cached-invalid.mgf")
+        .force_download(false);
+    let path = builder.path();
+    let document = "cached MassSpecGym file that should not be parsed\n";
+    std::fs::write(&path, document).map_err(|source| MascotError::Io {
+        path: path.display().to_string(),
+        source,
+    })?;
+
+    let download = pollster::block_on(<MassSpecGymBuilder<f32> as Dataset>::download(builder))?;
+    let _ = std::fs::remove_dir_all(&target_directory);
+
+    assert_eq!(download.path(), path.as_path());
+    assert_eq!(download.bytes(), document.len() as u64);
+
+    Ok(())
+}
+
+#[test]
+fn test_mass_spec_gym_builder_rejects_empty_file_name() {
+    assert!(matches!(
+        pollster::block_on(MGFVec::<usize>::mass_spec_gym().file_name("").load()),
+        Err(MascotError::EmptyFilename)
+    ));
+}
+
+#[test]
 fn test_gems_a10_builder_defaults_to_published_parts() -> Result<()> {
     let builder = MGFVec::<usize>::gems_a10();
 
@@ -1570,7 +1692,7 @@ fn test_gems_a10_builder_loads_existing_downloaded_file() -> Result<()> {
     let builder = MGFVec::<usize, f32>::gems_a10()
         .target_directory(&target_directory)
         .file_key("cached.mgf")
-        .verbosity(GemsA10Verbosity::Indicatif)
+        .verbose()
         .force_download(false);
     let path = builder.path_for_file_key("cached.mgf");
     let document = r"BEGIN IONS

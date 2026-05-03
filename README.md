@@ -11,7 +11,7 @@ Parsing utilities for Mascot Generic Format (MGF) spectra. Algorithmic work is d
 
 Default features enable `std` and `mem_dbg`. Disabling defaults keeps the
 string and iterator parser APIs available for `no_std` targets with `alloc`.
-File IO, GNPS downloading/loading, and progress reporting require `std`.
+File IO, dataset downloading/loading, and progress reporting require `std`.
 Path-based loading supports uncompressed MGF plus `.zst`, `.zstd`, `.gz`, and
 `.gzip` files.
 
@@ -297,6 +297,77 @@ std::fs::remove_dir_all(&target_directory)?;
 
 assert_eq!(load.spectra().len(), 1);
 assert_eq!(load.skipped_records(), 1);
+# Ok(())
+# }
+# #[cfg(not(feature = "std"))]
+# fn main() {}
+```
+
+## `MassSpecGym`
+
+The `MassSpecGym` helper is exposed through
+`MGFVec::<usize, P>::mass_spec_gym()`. It targets the public Hugging Face
+`data/auxiliary/MassSpecGym.mgf` file, which contains 231,104 benchmark spectra.
+The loader normalizes `MassSpecGym`-specific headers such as `IDENTIFIER`,
+`PRECURSOR_MZ`, `ADDUCT`, and `INSTRUMENT_TYPE` into the strict parser while
+preserving the original keys as arbitrary metadata.
+
+```rust
+# #[cfg(feature = "std")]
+# fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+use mascot_rs::prelude::*;
+
+let target_directory =
+    std::env::temp_dir().join(format!("mascot-rs-mass-spec-gym-{}", std::process::id()));
+let cached_path = target_directory.join("MassSpecGym.mgf");
+let _ = std::fs::remove_dir_all(&target_directory);
+std::fs::create_dir_all(&target_directory)?;
+
+std::fs::write(
+    &cached_path,
+    r#"BEGIN IONS
+IDENTIFIER=MassSpecGymID0000001
+SMILES=CCO
+INCHIKEY=LFQSCWFLJHTTHZ
+FORMULA=C2H6O
+PRECURSOR_FORMULA=C2H7O
+PARENT_MASS=46.041865
+PRECURSOR_MZ=47.049141
+ADDUCT=[M+H]+
+INSTRUMENT_TYPE=Orbitrap
+COLLISION_ENERGY=20.0
+FOLD=train
+SIMULATION_CHALLENGE=True
+31.0184 1.0
+45.0335 0.5
+END IONS
+"#,
+)?;
+
+let download = pollster::block_on(
+    MGFVec::<usize, f32>::mass_spec_gym()
+        .target_directory(&target_directory)
+        .download(),
+)?;
+assert_eq!(download.path(), cached_path.as_path());
+
+let load = pollster::block_on(
+    MGFVec::<usize, f32>::mass_spec_gym()
+        .target_directory(&target_directory)
+        .load(),
+)?;
+
+std::fs::remove_dir_all(&target_directory)?;
+
+assert_eq!(load.spectra().len(), 1);
+assert_eq!(load.spectra()[0].feature_id(), Some(1));
+assert_eq!(load.spectra()[0].charge(), 1);
+assert_eq!(
+    load.spectra()[0]
+        .metadata()
+        .arbitrary_metadata_value("IDENTIFIER"),
+    Some("MassSpecGymID0000001")
+);
 # Ok(())
 # }
 # #[cfg(not(feature = "std"))]

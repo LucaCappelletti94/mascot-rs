@@ -66,6 +66,31 @@ fn test_from_reader_rejects_empty_records_with_line_context() {
 }
 
 #[test]
+fn test_from_reader_filters_zero_intensity_peak_lines() -> Result<()> {
+    let document = concat!(
+        "BEGIN IONS\n",
+        "FEATURE_ID=1\n",
+        "PEPMASS=500.0\n",
+        "CHARGE=1\n",
+        "RTINSECONDS=10.0\n",
+        "MSLEVEL=2\n",
+        "100.0 0.0\n",
+        "200.0 3.0\n",
+        "SCANS=1\n",
+        "END IONS\n",
+    );
+
+    let records = MGFVec::<usize>::from_reader(std::io::Cursor::new(document))?;
+
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].len(), 1);
+    assert_eq!(records[0].peak_nth(0).0.to_bits(), 200.0_f64.to_bits());
+    assert_eq!(records[0].peak_nth(0).1.to_bits(), 3.0_f64.to_bits());
+
+    Ok(())
+}
+
+#[test]
 fn test_from_reader_reports_io_errors() {
     struct FailingReader;
 

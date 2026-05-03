@@ -71,13 +71,20 @@ where
             })
             .and_then(|value| numeric::parse_spectrum_float_lossy(value, MZ_FIELD, line))?;
 
-        let fragment_intensity = split
+        let fragment_intensity: P = split
             .next()
             .ok_or_else(|| MascotError::ParseField {
                 field: INTENSITY_FIELD,
                 line: line.to_string(),
             })
             .and_then(|value| numeric::parse_spectrum_float_lossy(value, INTENSITY_FIELD, line))?;
+
+        if matches!(
+            fragment_intensity.to_f64().classify(),
+            core::num::FpCategory::Zero
+        ) {
+            return Ok(());
+        }
 
         MascotGenericFormat::<I, P>::push_peak_tracking_order(
             &mut self.peaks,
@@ -154,7 +161,7 @@ mod tests {
             assert!(builder.digest_line(line).is_err());
         }
 
-        for line in ["NaN 1.0", "0.0 1.0", "100.0 NaN", "100.0 0.0"] {
+        for line in ["NaN 1.0", "0.0 1.0", "100.0 NaN", "100.0 -1.0"] {
             let mut builder = MascotGenericFormatBuilder::<usize>::default();
             builder.digest_line("BEGIN IONS")?;
             builder.digest_line("PEPMASS=500.0")?;
@@ -168,6 +175,26 @@ mod tests {
                 Err(MascotError::SpectrumMutation(_))
             ));
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn filters_zero_intensity_peak_lines() -> Result<()> {
+        let mut builder = MascotGenericFormatBuilder::<usize>::default();
+        builder.digest_line("BEGIN IONS")?;
+        builder.digest_line("PEPMASS=500.0")?;
+        builder.digest_line("MSLEVEL=2")?;
+        builder.digest_line("SCANS=-1")?;
+        builder.digest_line("CHARGE=1")?;
+        builder.digest_line("100.0 0.0")?;
+        builder.digest_line("200.0 3.0")?;
+        builder.digest_line("END IONS")?;
+
+        let record = builder.build()?;
+        assert_eq!(record.len(), 1);
+        assert_eq!(record.peak_nth(0).0.to_bits(), 200.0_f64.to_bits());
+        assert_eq!(record.peak_nth(0).1.to_bits(), 3.0_f64.to_bits());
 
         Ok(())
     }

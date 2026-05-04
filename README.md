@@ -51,10 +51,10 @@ SCANS=2
 END IONS
 "#;
 
-let spectra: MGFVec<usize> = document.parse()?;
+let spectra: MGFVec = document.parse()?;
 
 assert_eq!(spectra.len(), 2);
-assert_eq!(spectra[0].feature_id(), Some(1));
+assert_eq!(spectra[0].feature_id(), Some("1"));
 assert_eq!(
     spectra[0].metadata().smiles().map(ToString::to_string).as_deref(),
     Some("CCO")
@@ -70,7 +70,7 @@ assert_eq!(
 );
 assert_eq!(spectra[1].precursor_mz().to_bits(), 600.0_f64.to_bits());
 
-let mut positive_orbitrap: MGFVec<usize> = spectra
+let mut positive_orbitrap: MGFVec = spectra
     .into_iter()
     .filter(|record| record.ion_mode() == Some(IonMode::Positive))
     .filter(|record| record.source_instrument() == Some(Instrument::Orbitrap))
@@ -89,14 +89,14 @@ let total_peaks = positive_orbitrap
 
 let mut buffer = Vec::new();
 positive_orbitrap.write_to(&mut buffer)?;
-let reparsed: MGFVec<usize> = std::str::from_utf8(&buffer)?.parse()?;
+let reparsed: MGFVec = std::str::from_utf8(&buffer)?.parse()?;
 
 let path = std::env::temp_dir().join(format!(
     "mascot-rs-parse-write-example-{}.mgf.zst",
     std::process::id()
 ));
 positive_orbitrap.to_path(&path)?;
-let from_disk: MGFVec<usize> = MGFVec::from_path(&path)?;
+let from_disk: MGFVec = MGFVec::from_path(&path)?;
 std::fs::remove_file(path)?;
 
 assert_eq!(total_peaks, 1);
@@ -122,7 +122,7 @@ and `.mgf.gz` files.
 # fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 use mascot_rs::prelude::*;
 
-let spectra: MGFVec<usize> =
+let spectra: MGFVec =
     MGFVec::from_path("tests/data/20220513_PMA_DBGI_01_04_003.mgf")?;
 
 assert_eq!(spectra.len(), 74);
@@ -160,7 +160,7 @@ SCANS=-1
 END IONS
 "#;
 
-let mut records = MGFVec::<usize>::iter_from_str(document);
+let mut records = MGFVec::<f64>::iter_from_str(document);
 
 let first = records
     .next()
@@ -200,12 +200,12 @@ SCANS=1
 END IONS
 "#;
 
-let record: MascotGenericFormat<usize> = document.parse()?;
+let record: MascotGenericFormat = document.parse()?;
 
-assert_eq!(record.feature_id(), Some(1));
+assert_eq!(record.feature_id(), Some("1"));
 assert_eq!(record.len(), 1);
 assert!(matches!(
-    "".parse::<MascotGenericFormat<usize>>(),
+    "".parse::<MascotGenericFormat>(),
     Err(MascotError::SingleRecordExpected { found: 0 })
 ));
 # Ok(())
@@ -233,7 +233,7 @@ SCANS=1
 END IONS
 "#;
 
-let spectra: MGFVec<usize, f32> = document.parse()?;
+let spectra: MGFVec<f32> = document.parse()?;
 let spectrum: &GenericSpectrum<f32> = spectra[0].as_ref();
 
 assert_eq!(spectra[0].precursor_mz().to_bits(), 500.0_f32.to_bits());
@@ -244,7 +244,7 @@ assert_eq!(spectrum.mz_nth(0).to_bits(), 100.0_f32.to_bits());
 
 ## GNPS
 
-The GNPS helper is exposed through `MGFVec::<usize, P>::gnps()`. The example
+The GNPS helper is exposed through `MGFVec::<P>::gnps()`. The example
 below writes a small local `ALL_GNPS.mgf` file first, so the builder downloads
 from the local cache, then loads that existing file without performing a network
 request. Dataset builders also implement `Dataset`, whose `download()` method
@@ -281,14 +281,14 @@ END IONS
 )?;
 
 let download = pollster::block_on(
-    MGFVec::<usize, f32>::gnps()
+    MGFVec::<f32>::gnps()
         .target_directory(&target_directory)
         .download(),
 )?;
 assert_eq!(download.path(), cached_path.as_path());
 
 let load = pollster::block_on(
-    MGFVec::<usize, f32>::gnps()
+    MGFVec::<f32>::gnps()
         .target_directory(&target_directory)
         .load(),
 )?;
@@ -306,7 +306,7 @@ assert_eq!(load.skipped_records(), 1);
 ## `MassSpecGym`
 
 The `MassSpecGym` helper is exposed through
-`MGFVec::<usize, P>::mass_spec_gym()`. It targets the public Hugging Face
+`MGFVec::<P>::mass_spec_gym()`. It targets the public Hugging Face
 `data/auxiliary/MassSpecGym.mgf` file, which contains 231,104 benchmark spectra.
 The loader normalizes `MassSpecGym`-specific headers such as `IDENTIFIER`,
 `PRECURSOR_MZ`, `ADDUCT`, and `INSTRUMENT_TYPE` into the strict parser while
@@ -345,14 +345,14 @@ END IONS
 )?;
 
 let download = pollster::block_on(
-    MGFVec::<usize, f32>::mass_spec_gym()
+    MGFVec::<f32>::mass_spec_gym()
         .target_directory(&target_directory)
         .download(),
 )?;
 assert_eq!(download.path(), cached_path.as_path());
 
 let load = pollster::block_on(
-    MGFVec::<usize, f32>::mass_spec_gym()
+    MGFVec::<f32>::mass_spec_gym()
         .target_directory(&target_directory)
         .load(),
 )?;
@@ -360,7 +360,7 @@ let load = pollster::block_on(
 std::fs::remove_dir_all(&target_directory)?;
 
 assert_eq!(load.spectra().len(), 1);
-assert_eq!(load.spectra()[0].feature_id(), Some(1));
+assert_eq!(load.spectra()[0].feature_id(), Some("MassSpecGymID0000001"));
 assert_eq!(load.spectra()[0].charge(), 1);
 assert_eq!(
     load.spectra()[0]
@@ -376,11 +376,11 @@ assert_eq!(
 
 ## GeMS-A10
 
-The GeMS-A10 helper is exposed through `MGFVec::<usize, P>::gems_a10()`.
+The GeMS-A10 helper is exposed through `MGFVec::<P>::gems_a10()`.
 By default it targets Zenodo record `19980668` and the 24 compressed MGF part
 files from the top-100 peaks conversion. The top-60 and top-40 peaks
-conversions are available with `MGFVec::<usize, P>::gems_a10_top_60_peaks()`
-or `MGFVec::<usize, P>::gems_a10_top_40_peaks()`, and with `.top_60_peaks()`
+conversions are available with `MGFVec::<P>::gems_a10_top_60_peaks()`
+or `MGFVec::<P>::gems_a10_top_40_peaks()`, and with `.top_60_peaks()`
 or `.top_40_peaks()` on the builder. They target Zenodo records `20001888`
 and `20002962`, respectively. Uncached downloads use `zenodo-rs` and should be
 awaited inside a Tokio runtime. The example below writes a small cached file
@@ -412,7 +412,7 @@ END IONS
 )?;
 
 let download = pollster::block_on(
-    MGFVec::<usize, f32>::gems_a10()
+    MGFVec::<f32>::gems_a10()
         .target_directory(&target_directory)
         .file_key("cached-gems-a10.mgf")
         .download(),
@@ -420,7 +420,7 @@ let download = pollster::block_on(
 assert_eq!(download.files()[0].path(), cached_path.as_path());
 
 let load = pollster::block_on(
-    MGFVec::<usize, f32>::gems_a10()
+    MGFVec::<f32>::gems_a10()
         .target_directory(&target_directory)
         .file_key("cached-gems-a10.mgf")
         .load(),

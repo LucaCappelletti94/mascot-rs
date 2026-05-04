@@ -93,10 +93,12 @@ pub mod prelude {
     pub use crate::mass_spec_gym::MASS_SPEC_GYM_SPECTRA_COUNT;
     pub use mass_spectrometry::prelude::{
         GenericSpectrum, Spectra, Spectrum, SpectrumAlloc, SpectrumFloat, SpectrumMut,
+        SpectrumSplash,
     };
     #[cfg(feature = "mem_dbg")]
     pub use mem_dbg::{DbgFlags, MemDbg};
     #[cfg(feature = "mem_size")]
     pub use mem_dbg::{MemSize, SizeFlags};
+    pub use molecular_formulas::prelude::ChemicalFormula;
     pub use smiles_parser::prelude::Smiles;
 }

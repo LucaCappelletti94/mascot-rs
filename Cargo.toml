@@ -19,6 +19,7 @@ flate2 = { version = "1.0", default-features = false, features = ["rust_backend"
 indicatif = { version = "0.17", default-features = false, optional = true }
 mass_spectrometry = { git = "https://github.com/earth-metabolome-initiative/mass-spectrometry-traits", rev = "33849cf912c9d2e6d13258f01593b7261e9f3c23", default-features = false }
 mem_dbg = { version = "0.4", default-features = false, features = ["derive", "half"], optional = true }
+molecular-formulas = { version = "0.1.9", default-features = false }
 smiles-parser = { git = "https://github.com/earth-metabolome-initiative/smiles-parser", rev = "8e8f5195979efba0cf12caf6c497a8654fc0bb9e", default-features = false }
 thiserror = { version = "2.0", default-features = false }
 ureq = { version = "3.3", optional = true }

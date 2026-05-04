@@ -1,8 +1,11 @@
 use alloc::{
+    boxed::Box,
     string::{String, ToString},
     vec::Vec,
 };
 use core::{fmt, str::FromStr};
+
+use molecular_formulas::prelude::ChemicalFormula;
 
 use crate::numeric;
 use crate::prelude::*;
@@ -201,6 +204,8 @@ pub struct MascotGenericFormatMetadata<I> {
     charge: i8,
     filename: Option<String>,
     smiles: Option<SmilesMetadata>,
+    formula: Option<FormulaMetadata>,
+    splash: Option<Box<str>>,
     ion_mode: Option<IonMode>,
     source_instrument: Option<Instrument>,
     arbitrary_metadata: Vec<(String, String)>,
@@ -212,6 +217,26 @@ struct SmilesMetadata(Smiles);
 impl SmilesMetadata {
     const fn as_smiles(&self) -> &Smiles {
         &self.0
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct FormulaMetadata {
+    formula: ChemicalFormula<u32, i32>,
+    original: String,
+}
+
+impl FormulaMetadata {
+    pub(crate) const fn new(formula: ChemicalFormula<u32, i32>, original: String) -> Self {
+        Self { formula, original }
+    }
+
+    pub(crate) const fn formula(&self) -> &ChemicalFormula<u32, i32> {
+        &self.formula
+    }
+
+    pub(crate) const fn original(&self) -> &str {
+        self.original.as_str()
     }
 }
 
@@ -452,10 +477,24 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
             charge,
             filename,
             smiles: smiles.map(SmilesMetadata),
+            formula: None,
+            splash: None,
             ion_mode,
             source_instrument: None,
             arbitrary_metadata: Vec::new(),
         })
+    }
+
+    #[must_use]
+    pub(crate) fn with_formula_metadata(mut self, formula: Option<FormulaMetadata>) -> Self {
+        self.formula = formula;
+        self
+    }
+
+    #[must_use]
+    pub(crate) fn with_splash(mut self, splash: Option<String>) -> Self {
+        self.splash = splash.map(String::into_boxed_str);
+        self
     }
 
     /// Returns this metadata with normalized instrument metadata set.
@@ -592,6 +631,24 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
         self.source_instrument
     }
 
+    /// Returns the parsed chemical formula metadata, if present.
+    pub const fn formula(&self) -> Option<&ChemicalFormula<u32, i32>> {
+        match self.formula.as_ref() {
+            Some(formula) => Some(formula.formula()),
+            None => None,
+        }
+    }
+
+    #[cfg(feature = "std")]
+    pub(crate) fn formula_original(&self) -> Option<&str> {
+        self.formula.as_ref().map(FormulaMetadata::original)
+    }
+
+    /// Returns the `SPLASH` metadata value, if present.
+    pub fn splash(&self) -> Option<&str> {
+        self.splash.as_deref()
+    }
+
     /// Returns arbitrary MGF header metadata sorted by key.
     #[must_use]
     pub const fn arbitrary_metadata(&self) -> &[(String, String)] {
@@ -639,3 +696,22 @@ impl mem_dbg::MemSize for SmilesMetadata {
 
 #[cfg(feature = "mem_dbg")]
 impl mem_dbg::MemDbgImpl for SmilesMetadata {}
+
+#[cfg(feature = "mem_size")]
+impl mem_dbg::FlatType for FormulaMetadata {
+    type Flat = mem_dbg::False;
+}
+
+#[cfg(feature = "mem_size")]
+impl mem_dbg::MemSize for FormulaMetadata {
+    fn mem_size_rec(
+        &self,
+        _flags: mem_dbg::SizeFlags,
+        _refs: &mut mem_dbg::HashMap<usize, usize>,
+    ) -> usize {
+        core::mem::size_of::<Self>()
+    }
+}
+
+#[cfg(feature = "mem_dbg")]
+impl mem_dbg::MemDbgImpl for FormulaMetadata {}

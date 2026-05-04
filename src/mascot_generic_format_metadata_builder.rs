@@ -5,7 +5,9 @@ use alloc::{
 use core::ops::Add;
 use core::{fmt::Debug, str::FromStr};
 
-use crate::mascot_generic_format_metadata::insert_sorted_arbitrary_metadata;
+use molecular_formulas::prelude::ChemicalFormula;
+
+use crate::mascot_generic_format_metadata::{insert_sorted_arbitrary_metadata, FormulaMetadata};
 use crate::numeric;
 use crate::prelude::*;
 
@@ -22,6 +24,8 @@ enum MGFMetadataLine<'a> {
     RetentionTime(&'a str),
     Filename(&'a str),
     Smiles(&'a str),
+    Formula(&'a str),
+    Splash(&'a str),
     IonMode(&'a str),
     SourceInstrument(&'a str),
     MergedScanMetadata,
@@ -42,6 +46,8 @@ pub struct MascotGenericFormatMetadataBuilder<I, P: SpectrumFloat = f64> {
     merged_total_scan_count: Option<I>,
     filename: Option<String>,
     smiles: Option<Smiles>,
+    formula: Option<FormulaMetadata>,
+    splash: Option<String>,
     ion_mode: Option<IonMode>,
     source_instrument: Option<Instrument>,
     arbitrary_metadata: Vec<(String, String)>,
@@ -62,6 +68,8 @@ impl<I, P: SpectrumFloat> Default for MascotGenericFormatMetadataBuilder<I, P> {
             merged_total_scan_count: None,
             filename: None,
             smiles: None,
+            formula: None,
+            splash: None,
             ion_mode: None,
             source_instrument: None,
             arbitrary_metadata: Vec::new(),
@@ -133,6 +141,20 @@ impl<
         Ok(())
     }
 
+    fn validate_formula_matches_smiles(&self) -> Result<()> {
+        if let (Some(formula), Some(smiles)) = (&self.formula, &self.smiles) {
+            let smiles_formula = ChemicalFormula::<u32, i32>::from(smiles);
+            if formula.formula() != &smiles_formula {
+                return Err(MascotError::FormulaSmilesMismatch {
+                    formula: formula.original().to_string(),
+                    smiles_formula: smiles_formula.to_string(),
+                });
+            }
+        }
+
+        Ok(())
+    }
+
     /// Builds parsed MGF metadata and the precursor m/z.
     ///
     /// # Errors
@@ -140,6 +162,7 @@ impl<
     /// is invalid.
     pub(super) fn build(self) -> Result<(MascotGenericFormatMetadata<I>, P)> {
         self.validate_merged_scan_metadata()?;
+        self.validate_formula_matches_smiles()?;
 
         let metadata = MascotGenericFormatMetadata::new_with_smiles_and_ion_mode(
             self.feature_id,
@@ -156,6 +179,8 @@ impl<
             self.smiles,
             self.ion_mode,
         )?
+        .with_formula_metadata(self.formula)
+        .with_splash(self.splash)
         .with_source_instrument(self.source_instrument)
         .with_arbitrary_metadata(self.arbitrary_metadata);
         let precursor_mz = self.precursor_mz.ok_or(MascotError::MissingField {
@@ -390,6 +415,43 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
         )
     }
 
+    fn digest_formula_line(&mut self, stripped: &str, line: &str) -> Result<()> {
+        let stripped = stripped.trim();
+        if Self::missing_optional_metadata_value(stripped) {
+            return Ok(());
+        }
+
+        let formula = stripped
+            .parse::<ChemicalFormula<u32, i32>>()
+            .map_err(|error| MascotError::InvalidFormula {
+                line: line.to_string(),
+                error,
+            })?;
+        let formula = FormulaMetadata::new(formula, stripped.to_string());
+        Self::set_parsed_field(
+            &mut self.formula,
+            formula,
+            "formula",
+            line,
+            |observed, value| observed.formula() == value.formula(),
+        )
+    }
+
+    fn digest_splash_line(&mut self, stripped: &str, line: &str) -> Result<()> {
+        let stripped = stripped.trim();
+        if Self::missing_optional_metadata_value(stripped) {
+            return Ok(());
+        }
+
+        Self::set_parsed_field(
+            &mut self.splash,
+            stripped.to_string(),
+            "splash",
+            line,
+            |observed, value| observed == value,
+        )
+    }
+
     fn digest_ion_mode_line(&mut self, stripped: &str, line: &str) -> Result<()> {
         let stripped = stripped.trim();
         if Self::missing_optional_metadata_value(stripped) {
@@ -605,6 +667,18 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
         }
 
         if let Some(stripped) = line
+            .strip_prefix("FORMULA=")
+            .or_else(|| line.strip_prefix("MOLECULAR_FORMULA="))
+            .or_else(|| line.strip_prefix("CHEMICAL_FORMULA="))
+        {
+            return Some(MGFMetadataLine::Formula(stripped));
+        }
+
+        if let Some(stripped) = line.strip_prefix("SPLASH=") {
+            return Some(MGFMetadataLine::Splash(stripped));
+        }
+
+        if let Some(stripped) = line
             .strip_prefix("IONMODE=")
             .or_else(|| line.strip_prefix("ION_MODE="))
         {
@@ -674,6 +748,8 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
             }
             Some(MGFMetadataLine::Filename(stripped)) => self.digest_filename_line(stripped, line),
             Some(MGFMetadataLine::Smiles(stripped)) => self.digest_smiles_line(stripped, line),
+            Some(MGFMetadataLine::Formula(stripped)) => self.digest_formula_line(stripped, line),
+            Some(MGFMetadataLine::Splash(stripped)) => self.digest_splash_line(stripped, line),
             Some(MGFMetadataLine::IonMode(stripped)) => self.digest_ion_mode_line(stripped, line),
             Some(MGFMetadataLine::SourceInstrument(stripped)) => {
                 self.digest_source_instrument_line(stripped, line)
@@ -710,6 +786,10 @@ mod tests {
             "FILENAME=20220513_PMA_DBGI_01_04_003.mzML",
             "SMILES=CCO",
             "SMILES=N/A",
+            "FORMULA=C2H6O",
+            "MOLECULAR_FORMULA=C2H6O",
+            "CHEMICAL_FORMULA=C2H6O",
+            "SPLASH=splash10-0udi-0490000000-4425acda10ed7d4709bd",
             "IONMODE=Positive",
             "IONMODE=Negative",
             "IONMODE=N/A",
@@ -739,6 +819,8 @@ mod tests {
         parser.digest_line("RTINSECONDS=37.083")?;
         parser.digest_line("FILENAME=20220513_PMA_DBGI_01_04_003.mzML")?;
         parser.digest_line("SMILES=CCO")?;
+        parser.digest_line("FORMULA=C2H6O")?;
+        parser.digest_line("SPLASH=splash10-0udi-0490000000-4425acda10ed7d4709bd")?;
         parser.digest_line("IONMODE=Positive")?;
         parser.digest_line("SOURCE_INSTRUMENT=LC-ESI-Orbitrap")?;
 
@@ -764,6 +846,11 @@ mod tests {
                 .map(ToString::to_string)
                 .as_deref(),
             Some("CCO")
+        );
+        assert!(mascot_generic_format_metadata.formula().is_some());
+        assert_eq!(
+            mascot_generic_format_metadata.splash(),
+            Some("splash10-0udi-0490000000-4425acda10ed7d4709bd")
         );
         assert_eq!(
             mascot_generic_format_metadata.ion_mode(),
@@ -922,6 +1009,40 @@ mod tests {
     }
 
     #[test]
+    fn rejects_conflicting_formula() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        parser.digest_line("FORMULA=C2H6O")?;
+        assert!(parser.digest_line("FORMULA=C3H8O").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_conflicting_splash() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        parser.digest_line("SPLASH=splash10-0udi-0490000000-4425acda10ed7d4709bd")?;
+        assert!(parser
+            .digest_line("SPLASH=splash10-0000-0000000000-00000000000000000000")
+            .is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_formula_smiles_mismatch_on_build() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        parser.digest_line("PEPMASS=381.0795")?;
+        parser.digest_line("MSLEVEL=2")?;
+        parser.digest_line("CHARGE=1")?;
+        parser.digest_line("SMILES=CCO")?;
+        parser.digest_line("FORMULA=C3H8O")?;
+
+        assert!(matches!(
+            parser.build(),
+            Err(MascotError::FormulaSmilesMismatch { .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
     fn rejects_conflicting_ion_mode() -> Result<()> {
         let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
         parser.digest_line("IONMODE=Positive")?;
@@ -960,6 +1081,10 @@ mod tests {
             "SMILES=CCO",
             "SMILES=CCO",
             "SMILES=N/A",
+            "FORMULA=C2H6O",
+            "FORMULA=C2H6O",
+            "SPLASH=splash10-0udi-0490000000-4425acda10ed7d4709bd",
+            "SPLASH=N/A",
             "IONMODE=Positive",
             "IONMODE=pos",
             "IONMODE=N/A",
@@ -994,6 +1119,7 @@ mod tests {
             "RTINSECONDS=NaN",
             "RTINSECONDS=0",
             "SMILES=C(",
+            "FORMULA=not-a-formula",
             "IONMODE=unknown",
             "MERGED_SCANS=not-a-number",
             "MERGED_STATS=not-a-fraction",
@@ -1078,6 +1204,8 @@ mod tests {
             merged_total_scan_count: Some(1),
             filename: None,
             smiles: None,
+            formula: None,
+            splash: None,
             ion_mode: None,
             source_instrument: None,
             arbitrary_metadata: Vec::new(),

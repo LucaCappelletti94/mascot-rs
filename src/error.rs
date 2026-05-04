@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 use alloc::string::String;
 
-use mass_spectrometry::prelude::GenericSpectrumMutationError;
+use mass_spectrometry::prelude::{GenericSpectrumMutationError, SplashError};
 use thiserror::Error;
 
 /// Crate-wide result type.
@@ -99,6 +99,24 @@ pub enum MascotError {
         /// Underlying SMILES parser error.
         error: smiles_parser::prelude::SmilesErrorWithSpan,
     },
+    /// A `FORMULA` metadata line could not be parsed.
+    #[error("could not parse molecular formula from line \"{line}\": {error}")]
+    InvalidFormula {
+        /// Original input line.
+        line: String,
+        /// Underlying molecular formula parser error.
+        error: molecular_formulas::errors::ParserError,
+    },
+    /// Parsed `FORMULA` metadata does not match the molecular formula from `SMILES`.
+    #[error(
+        "FORMULA metadata {formula} does not match the SMILES-derived formula {smiles_formula}"
+    )]
+    FormulaSmilesMismatch {
+        /// Formula reported by the MGF header.
+        formula: String,
+        /// Formula calculated from the parsed SMILES.
+        smiles_formula: String,
+    },
     /// A line provided a non-finite floating-point value.
     #[error("line \"{line}\" contains a non-finite {field}")]
     NonFiniteField {
@@ -184,6 +202,17 @@ pub enum MascotError {
     /// Spectrum validation failed in the shared mass-spectrometry model.
     #[error("could not create spectrum: {0}")]
     SpectrumMutation(#[from] GenericSpectrumMutationError),
+    /// SPLASH calculation failed while validating metadata.
+    #[error("could not calculate SPLASH for metadata validation: {0}")]
+    SplashValidation(#[from] SplashError),
+    /// A `SPLASH` metadata value does not match the parsed peaks.
+    #[error("SPLASH metadata {observed} does not match the calculated SPLASH {expected}")]
+    SplashMismatch {
+        /// SPLASH reported by the MGF header.
+        observed: String,
+        /// SPLASH calculated from the parsed peaks.
+        expected: String,
+    },
     /// First-level data is incompatible with the precursor m/z.
     #[error(
         "first-level minimum m/z {first_level_min_mz:?} does not match precursor m/z {precursor_mz:?}"

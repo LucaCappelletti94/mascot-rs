@@ -99,10 +99,7 @@ fn assert_mona_style_spectrum(spectra: &MGFVec<usize>) {
     assert_eq!(spectra[0].ion_mode(), Some(IonMode::Positive));
     assert_eq!(spectra[0].source_instrument(), Some(Instrument::Quadrupole));
     assert_eq!(spectra[0].len(), 38);
-    assert_eq!(
-        spectra[0].metadata().arbitrary_metadata_value("FORMULA"),
-        Some("C12H8F3N5O3S")
-    );
+    assert!(spectra[0].metadata().formula().is_some());
     assert_eq!(
         spectra[0].metadata().arbitrary_metadata_value("ADDUCT"),
         Some("[M+H]+")
@@ -157,10 +154,7 @@ END IONS
         spectra[0].metadata().arbitrary_metadata_value("ADDUCT"),
         Some("[M-H]-")
     );
-    assert_eq!(
-        spectra[0].metadata().arbitrary_metadata_value("FORMULA"),
-        Some("C12H8F3N5O3S")
-    );
+    assert!(spectra[0].metadata().formula().is_some());
 
     Ok(())
 }

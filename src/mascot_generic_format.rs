@@ -17,8 +17,9 @@ use std::{
 };
 
 use mass_spectrometry::prelude::{
-    GenericSpectrum, Spectra, Spectrum, SpectrumAlloc, SpectrumFloat, SpectrumMut,
+    GenericSpectrum, Spectra, Spectrum, SpectrumAlloc, SpectrumFloat, SpectrumMut, SpectrumSplash,
 };
+use molecular_formulas::prelude::ChemicalFormula;
 
 use crate::error::{MascotError, Result};
 #[cfg(feature = "std")]
@@ -151,7 +152,23 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
             });
         }
 
-        Ok(Self { metadata, spectrum })
+        let record = Self { metadata, spectrum };
+        record.validate_splash_metadata()?;
+        Ok(record)
+    }
+
+    fn validate_splash_metadata(&self) -> Result<()> {
+        if let Some(observed) = self.metadata.splash() {
+            let expected = SpectrumSplash::splash(self)?;
+            if observed != expected {
+                return Err(MascotError::SplashMismatch {
+                    observed: observed.to_string(),
+                    expected,
+                });
+            }
+        }
+
+        Ok(())
     }
 
     /// Returns the feature ID of the metadata, if present.
@@ -177,6 +194,11 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
     /// Returns the normalized instrument metadata parsed from `SOURCE_INSTRUMENT`, if present.
     pub const fn source_instrument(&self) -> Option<Instrument> {
         self.metadata.source_instrument()
+    }
+
+    /// Returns the parsed chemical formula metadata, if present.
+    pub const fn formula(&self) -> Option<&ChemicalFormula<u32, i32>> {
+        self.metadata.formula()
     }
 
     /// Returns the metadata for this MGF record.
@@ -250,6 +272,12 @@ where
         }
         if let Some(smiles) = self.metadata.smiles() {
             Self::map_output_io(writeln!(writer, "SMILES={smiles}"))?;
+        }
+        if let Some(formula) = self.metadata.formula_original() {
+            Self::map_output_io(writeln!(writer, "FORMULA={formula}"))?;
+        }
+        if let Some(splash) = self.metadata.splash() {
+            Self::map_output_io(writeln!(writer, "SPLASH={splash}"))?;
         }
         if let Some(ion_mode) = self.metadata.ion_mode() {
             Self::map_output_io(writeln!(writer, "IONMODE={ion_mode}"))?;
@@ -368,7 +396,18 @@ impl<I: Copy, P: SpectrumFloat> SpectrumMut for MascotGenericFormat<I, P> {
     type MutationError = MascotError;
 
     fn add_peak(&mut self, mz: P, intensity: P) -> Result<&mut Self> {
-        self.spectrum.add_peak(mz, intensity)?;
+        if self.metadata.splash().is_some() {
+            let mut spectrum = self.spectrum.clone();
+            spectrum.add_peak(mz, intensity)?;
+            let candidate = Self {
+                metadata: self.metadata.clone(),
+                spectrum,
+            };
+            candidate.validate_splash_metadata()?;
+            self.spectrum = candidate.spectrum;
+        } else {
+            self.spectrum.add_peak(mz, intensity)?;
+        }
         Ok(self)
     }
 }
@@ -382,10 +421,10 @@ impl<I: Copy, P: SpectrumFloat> SpectrumAlloc for MascotGenericFormat<I, P> {
     }
 
     fn top_k_peaks(&self, k: usize) -> Result<Self> {
-        Ok(Self {
-            metadata: self.metadata.clone(),
-            spectrum: <GenericSpectrum<P> as SpectrumAlloc>::top_k_peaks(&self.spectrum, k)?,
-        })
+        Self::from_spectrum(
+            self.metadata.clone(),
+            <GenericSpectrum<P> as SpectrumAlloc>::top_k_peaks(&self.spectrum, k)?,
+        )
     }
 }
 

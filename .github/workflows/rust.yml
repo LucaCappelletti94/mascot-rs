@@ -28,7 +28,7 @@ jobs:
       - name: Run tests
         run: cargo test --verbose
       - name: Run clippy
-        run: cargo clippy -- -Dclippy::all -Dclippy::cargo
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
   coverage:
     runs-on: ubuntu-latest

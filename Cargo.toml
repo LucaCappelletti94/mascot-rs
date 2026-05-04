@@ -14,13 +14,12 @@ categories = [
 ]
 
 [dependencies]
-console = { version = "=0.15.8", optional = true }
 flate2 = { version = "1.0", default-features = false, features = ["rust_backend"], optional = true }
-indicatif = { version = "0.17", default-features = false, optional = true }
-mass_spectrometry = { git = "https://github.com/earth-metabolome-initiative/mass-spectrometry-traits", rev = "33849cf912c9d2e6d13258f01593b7261e9f3c23", default-features = false }
+indicatif = { version = "0.18", default-features = false, optional = true }
+mass_spectrometry = { git = "https://github.com/earth-metabolome-initiative/mass-spectrometry-traits", rev = "5010a2a1c4dbf8d1898b8319b2108ea810be1767", default-features = false }
 mem_dbg = { version = "0.4", default-features = false, features = ["derive", "half"], optional = true }
 molecular-formulas = { version = "0.1.10", default-features = false }
-smiles-parser = { git = "https://github.com/earth-metabolome-initiative/smiles-parser", rev = "8e8f5195979efba0cf12caf6c497a8654fc0bb9e", default-features = false }
+smiles-parser = { git = "https://github.com/earth-metabolome-initiative/smiles-parser", rev = "ad15ce7205f4e3ad842f5eaa153d562f3548bd79", default-features = false }
 thiserror = { version = "2.0", default-features = false }
 ureq = { version = "3.3", optional = true }
 zenodo-rs = { version = "0.1.6", default-features = false, features = ["checksums", "rustls-tls"], optional = true }
@@ -32,7 +31,6 @@ pollster = "0.4"
 [features]
 default = ["std", "mem_dbg"]
 std = [
-    "dep:console",
     "dep:flate2",
     "dep:indicatif",
     "dep:ureq",

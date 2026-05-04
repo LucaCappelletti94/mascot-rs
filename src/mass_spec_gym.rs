@@ -232,8 +232,6 @@ struct MassSpecGymLineSource<S> {
     source: S,
     queued: VecDeque<String>,
     saw_level: bool,
-    saw_charge: bool,
-    saw_ion_mode: bool,
 }
 
 impl<S> MassSpecGymLineSource<S> {
@@ -242,16 +240,12 @@ impl<S> MassSpecGymLineSource<S> {
             source,
             queued: VecDeque::new(),
             saw_level: false,
-            saw_charge: false,
-            saw_ion_mode: false,
         }
     }
 
     fn reset_record_state(&mut self) {
         self.queued.clear();
         self.saw_level = false;
-        self.saw_charge = false;
-        self.saw_ion_mode = false;
     }
 
     fn normalize_line(&mut self, line: &str) -> String {
@@ -261,7 +255,7 @@ impl<S> MassSpecGymLineSource<S> {
                 return line.to_string();
             }
             "END IONS" => {
-                self.queue_missing_required_metadata();
+                self.queue_missing_level_metadata();
                 if let Some(queued) = self.queued.pop_front() {
                     self.queued.push_back(line.to_string());
                     return queued;
@@ -273,10 +267,6 @@ impl<S> MassSpecGymLineSource<S> {
 
         if line.starts_with("MSLEVEL=") {
             self.saw_level = true;
-        } else if line.starts_with("CHARGE=") {
-            self.saw_charge = true;
-        } else if line.starts_with("IONMODE=") {
-            self.saw_ion_mode = true;
         } else if let Some(identifier) = line.strip_prefix("IDENTIFIER=") {
             let identifier = identifier.trim();
             if !identifier.is_empty() {
@@ -287,63 +277,16 @@ impl<S> MassSpecGymLineSource<S> {
         } else if let Some(instrument) = line.strip_prefix("INSTRUMENT_TYPE=") {
             self.queued
                 .push_back(format!("SOURCE_INSTRUMENT={instrument}"));
-        } else if let Some(adduct) = line.strip_prefix("ADDUCT=") {
-            self.queue_adduct_metadata(adduct);
         }
 
         line.to_string()
     }
 
-    fn queue_missing_required_metadata(&mut self) {
+    fn queue_missing_level_metadata(&mut self) {
         if !self.saw_level {
             self.queued.push_back("MSLEVEL=2".to_string());
             self.saw_level = true;
         }
-        if !self.saw_charge {
-            self.queued.push_back("CHARGE=0".to_string());
-            self.saw_charge = true;
-        }
-    }
-
-    fn queue_adduct_metadata(&mut self, adduct: &str) {
-        let Some(charge) = Self::charge_from_adduct(adduct) else {
-            return;
-        };
-
-        if !self.saw_charge {
-            self.queued.push_back(format!("CHARGE={charge}"));
-            self.saw_charge = true;
-        }
-        if !self.saw_ion_mode {
-            let ion_mode = if charge.is_positive() {
-                "Positive"
-            } else {
-                "Negative"
-            };
-            self.queued.push_back(format!("IONMODE={ion_mode}"));
-            self.saw_ion_mode = true;
-        }
-    }
-
-    fn charge_from_adduct(adduct: &str) -> Option<i8> {
-        let adduct = adduct.trim();
-        let (without_sign, sign) = if let Some(without_sign) = adduct.strip_suffix('+') {
-            (without_sign, 1_i8)
-        } else {
-            (adduct.strip_suffix('-')?, -1_i8)
-        };
-
-        let magnitude = without_sign
-            .char_indices()
-            .rev()
-            .find_map(|(index, character)| {
-                (!character.is_ascii_digit())
-                    .then_some(&without_sign[index + character.len_utf8()..])
-            })
-            .filter(|digits| !digits.is_empty())
-            .map_or(Some(1_i8), |digits| digits.parse::<i8>().ok())?;
-
-        Some(sign.saturating_mul(magnitude))
     }
 }
 
@@ -371,29 +314,85 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::io::Cursor;
+
     use super::*;
 
+    fn next_line<S>(source: &mut MassSpecGymLineSource<S>) -> Result<Option<String>>
+    where
+        S: MGFLineSource,
+    {
+        match source.next_line() {
+            Some(Ok(line)) => Ok(Some(line)),
+            Some(Err(error)) => Err(error),
+            None => Ok(None),
+        }
+    }
+
     #[test]
-    fn derives_charge_from_adduct() {
-        assert_eq!(
-            MassSpecGymLineSource::<MGFReader<std::io::Cursor<&str>>>::charge_from_adduct("[M+H]+"),
-            Some(1)
-        );
-        assert_eq!(
-            MassSpecGymLineSource::<MGFReader<std::io::Cursor<&str>>>::charge_from_adduct(
-                "[M+2H]2+"
-            ),
-            Some(2)
-        );
-        assert_eq!(
-            MassSpecGymLineSource::<MGFReader<std::io::Cursor<&str>>>::charge_from_adduct("[M-H]-"),
-            Some(-1)
-        );
-        assert_eq!(
-            MassSpecGymLineSource::<MGFReader<std::io::Cursor<&str>>>::charge_from_adduct(
-                "[M-2H]2-"
-            ),
-            Some(-2)
-        );
+    fn preserves_records_that_already_have_standard_level_metadata() -> Result<()> {
+        let document = "BEGIN IONS\nMSLEVEL=2\nEND IONS\n";
+        let reader = MGFReader::new(Cursor::new(document));
+        let mut source = MassSpecGymLineSource::new(reader);
+
+        assert_eq!(next_line(&mut source)?.as_deref(), Some("BEGIN IONS"));
+        assert_eq!(next_line(&mut source)?.as_deref(), Some("MSLEVEL=2"));
+        assert_eq!(next_line(&mut source)?.as_deref(), Some("END IONS"));
+        assert_eq!(next_line(&mut source)?, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn queues_only_missing_level_metadata_at_end_of_record() -> Result<()> {
+        let document = "BEGIN IONS\nEND IONS\n";
+        let reader = MGFReader::new(Cursor::new(document));
+        let mut source = MassSpecGymLineSource::new(reader);
+
+        assert_eq!(next_line(&mut source)?.as_deref(), Some("BEGIN IONS"));
+        assert_eq!(next_line(&mut source)?.as_deref(), Some("MSLEVEL=2"));
+        assert_eq!(next_line(&mut source)?.as_deref(), Some("END IONS"));
+        assert_eq!(next_line(&mut source)?, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn forwards_line_source_errors() {
+        struct FailingLineSource;
+
+        impl MGFLineSource for FailingLineSource {
+            type Line<'line>
+                = &'line str
+            where
+                Self: 'line;
+
+            fn next_line(&mut self) -> Option<Result<Self::Line<'_>>> {
+                Some(Err(MascotError::InputIo {
+                    source: std::io::Error::other("forced line-source failure"),
+                }))
+            }
+        }
+
+        let mut source = MassSpecGymLineSource::new(FailingLineSource);
+
+        assert!(matches!(
+            source.next_line(),
+            Some(Err(MascotError::InputIo { .. }))
+        ));
+    }
+
+    #[test]
+    fn load_path_reports_open_errors() {
+        let path = std::env::temp_dir().join(format!(
+            "mascot-rs-missing-mass-spec-gym-{}.mgf",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+
+        assert!(matches!(
+            MassSpecGymBuilder::<f64>::load_path(&path),
+            Err(MascotError::Io { .. })
+        ));
     }
 }

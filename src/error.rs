@@ -179,6 +179,40 @@ pub enum MascotError {
         /// Original input line.
         line: String,
     },
+    /// Charge and ion-mode metadata point to different polarities.
+    #[error(
+        "charge {charge} is incompatible with ion mode {ion_mode}; positive charges require positive ion mode and negative charges require negative ion mode"
+    )]
+    ChargeIonModeMismatch {
+        /// Charge value.
+        charge: i8,
+        /// Ion-mode value.
+        ion_mode: &'static str,
+    },
+    /// The adduct-derived charge disagrees with explicit charge metadata.
+    #[error(
+        "ADDUCT {adduct} implies charge {adduct_charge}, but explicit CHARGE metadata reports {charge}"
+    )]
+    AdductChargeMismatch {
+        /// Adduct header value.
+        adduct: String,
+        /// Charge derived from the adduct.
+        adduct_charge: i8,
+        /// Explicit charge metadata value.
+        charge: i8,
+    },
+    /// The adduct-derived ion mode disagrees with explicit ion-mode metadata.
+    #[error(
+        "ADDUCT {adduct} implies {adduct_ion_mode} ion mode, but explicit IONMODE metadata reports {ion_mode}"
+    )]
+    AdductIonModeMismatch {
+        /// Adduct header value.
+        adduct: String,
+        /// Ion mode derived from the adduct.
+        adduct_ion_mode: &'static str,
+        /// Explicit ion-mode metadata value.
+        ion_mode: &'static str,
+    },
     /// A line is not supported by the current parser.
     #[error("{parser} does not support line \"{line}\"")]
     UnsupportedLine {
@@ -192,6 +226,20 @@ pub enum MascotError {
     LineOutsideIonSection {
         /// Original input line.
         line: String,
+    },
+    /// A new ion section started before the previous one was closed.
+    #[error("line \"{line}\" starts a new MGF ion section before the previous section was closed")]
+    NestedIonSection {
+        /// Original input line.
+        line: String,
+    },
+    /// Input ended while an ion section was still open.
+    #[error(
+        "MGF input ended before the ion section opened at line {begin_line_number} was closed with END IONS"
+    )]
+    UnclosedIonSection {
+        /// One-based line number where the unclosed section started.
+        begin_line_number: usize,
     },
     /// A parsed charge value is invalid.
     #[error("invalid charge in line \"{line}\": {reason}")]

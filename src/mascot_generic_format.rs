@@ -112,12 +112,9 @@ impl<P: SpectrumFloat> MascotGenericFormat<P> {
         }
 
         peaks.sort_by(|(left_mz, _), (right_mz, _)| left_mz.to_f64().total_cmp(&right_mz.to_f64()));
-        let mut peaks = peaks.into_iter();
-        let Some((mut current_mz, mut current_intensity)) = peaks.next() else {
-            return Err(MascotError::EmptyPeakVectors);
-        };
+        let (mut current_mz, mut current_intensity) = peaks[0];
 
-        for (mz, intensity) in peaks {
+        for (mz, intensity) in peaks.into_iter().skip(1) {
             if current_mz.to_f64().to_bits() == mz.to_f64().to_bits() {
                 current_intensity =
                     P::from_f64_lossy(current_intensity.to_f64() + intensity.to_f64());
@@ -181,8 +178,8 @@ impl<P: SpectrumFloat> MascotGenericFormat<P> {
         self.metadata.level()
     }
 
-    /// Returns the charge of the metadata.
-    pub const fn charge(&self) -> i8 {
+    /// Returns the precursor charge of the metadata, if known.
+    pub const fn charge(&self) -> Option<i8> {
         self.metadata.charge()
     }
 
@@ -258,7 +255,9 @@ impl<P: SpectrumFloat> MascotGenericFormat<P> {
             "PEPMASS={}",
             self.spectrum.precursor_mz().to_f64()
         ))?;
-        Self::map_output_io(writeln!(writer, "CHARGE={}", self.metadata.charge()))?;
+        if let Some(charge) = self.metadata.charge() {
+            Self::map_output_io(writeln!(writer, "CHARGE={charge}"))?;
+        }
         if let Some(retention_time) = self.metadata.retention_time() {
             Self::map_output_io(writeln!(writer, "RTINSECONDS={retention_time}"))?;
         }
@@ -407,7 +406,7 @@ impl<P: SpectrumFloat> SpectrumMut for MascotGenericFormat<P> {
 impl<P: SpectrumFloat> SpectrumAlloc for MascotGenericFormat<P> {
     fn with_capacity(precursor_mz: f64, capacity: usize) -> Result<Self> {
         Ok(Self {
-            metadata: MascotGenericFormatMetadata::new(None, 2, None, 0, None)?,
+            metadata: MascotGenericFormatMetadata::new(None, 2, None, None, None)?,
             spectrum: GenericSpectrum::<P>::try_with_capacity(precursor_mz, capacity)?,
         })
     }
@@ -446,13 +445,9 @@ impl<P: SpectrumFloat> MGFRecordParser<P> {
     fn digest_line(&mut self, line: &str) -> Result<Option<MascotGenericFormat<P>>> {
         self.builder.digest_line(line)?;
 
-        if self.builder.can_build() {
+        if line == "END IONS" {
             let builder = core::mem::take(&mut self.builder);
             return builder.build().map(Some);
-        }
-
-        if self.builder.can_skip_empty_section() {
-            return Err(MascotError::EmptyPeakVectors);
         }
 
         Ok(None)
@@ -565,6 +560,7 @@ pub struct MGFIter<P: SpectrumFloat = f64, S = MGFStrLines<'static>> {
     source: S,
     parser: MGFRecordParser<P>,
     line_number: usize,
+    open_section_line_number: Option<usize>,
     skipped_records: usize,
     mode: MGFIterMode,
     discarding_invalid_record: bool,
@@ -587,6 +583,7 @@ where
             source,
             parser: MGFRecordParser::<P>::default(),
             line_number: 0,
+            open_section_line_number: None,
             skipped_records: 0,
             mode: MGFIterMode::Strict,
             discarding_invalid_record: false,
@@ -682,9 +679,21 @@ where
                     return Some(Err(source));
                 }
                 None => {
-                    if self.mode == MGFIterMode::SkipInvalidRecords && self.parser.section_open() {
-                        self.skipped_records += 1;
-                        self.parser.reset();
+                    if self.parser.section_open() {
+                        if self.mode == MGFIterMode::SkipInvalidRecords {
+                            self.skipped_records += 1;
+                            self.parser.reset();
+                            self.open_section_line_number = None;
+                            self.finished = true;
+                            return None;
+                        }
+
+                        self.finished = true;
+                        return Some(Err(MascotError::UnclosedIonSection {
+                            begin_line_number: self
+                                .open_section_line_number
+                                .unwrap_or(self.line_number),
+                        }));
                     }
                     self.finished = true;
                     return None;
@@ -714,16 +723,26 @@ where
                 if line == "BEGIN IONS" && self.parser.section_open() {
                     self.skipped_records += 1;
                     self.parser.reset();
+                    self.open_section_line_number = None;
                 }
             }
 
+            let section_was_open = self.parser.section_open();
             match self.parser.digest_line(line) {
-                Ok(Some(record)) => return Some(Ok(record)),
-                Ok(None) => {}
+                Ok(Some(record)) => {
+                    self.open_section_line_number = None;
+                    return Some(Ok(record));
+                }
+                Ok(None) => {
+                    if line == "BEGIN IONS" && !section_was_open {
+                        self.open_section_line_number = Some(self.line_number);
+                    }
+                }
                 Err(source) => {
                     if self.mode == MGFIterMode::SkipInvalidRecords {
                         self.skipped_records += 1;
                         self.parser.reset();
+                        self.open_section_line_number = None;
                         self.discarding_invalid_record = true;
                         if line == "END IONS" {
                             self.discarding_invalid_record = false;

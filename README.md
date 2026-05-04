@@ -309,8 +309,10 @@ The `MassSpecGym` helper is exposed through
 `MGFVec::<P>::mass_spec_gym()`. It targets the public Hugging Face
 `data/auxiliary/MassSpecGym.mgf` file, which contains 231,104 benchmark spectra.
 The loader normalizes `MassSpecGym`-specific headers such as `IDENTIFIER`,
-`PRECURSOR_MZ`, `ADDUCT`, and `INSTRUMENT_TYPE` into the strict parser while
-preserving the original keys as arbitrary metadata.
+`PRECURSOR_MZ` and `INSTRUMENT_TYPE` into the strict parser while preserving
+the original keys as arbitrary metadata. `ADDUCT` is handled by the generic MGF
+metadata parser, which derives charge and ion mode when the adduct is
+unambiguous.
 
 ```rust
 # #[cfg(feature = "std")]
@@ -361,7 +363,7 @@ std::fs::remove_dir_all(&target_directory)?;
 
 assert_eq!(load.spectra().len(), 1);
 assert_eq!(load.spectra()[0].feature_id(), Some("MassSpecGymID0000001"));
-assert_eq!(load.spectra()[0].charge(), 1);
+assert_eq!(load.spectra()[0].charge(), Some(1));
 assert_eq!(
     load.spectra()[0]
         .metadata()

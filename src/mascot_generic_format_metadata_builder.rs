@@ -85,14 +85,6 @@ impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
             || self.merged_scans_removed_due_to_low_cosine.is_some()
             || self.merged_total_scan_count.is_some()
     }
-
-    const fn merged_scan_metadata_is_complete(&self) -> bool {
-        self.merged_scan_count.is_some()
-            && self.retained_merged_scan_count.is_some()
-            && self.merged_scans_removed_due_to_low_quality.is_some()
-            && self.merged_scans_removed_due_to_low_cosine.is_some()
-            && self.merged_total_scan_count.is_some()
-    }
 }
 
 impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
@@ -198,10 +190,7 @@ impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
                 field: "level",
             })?,
             self.retention_time,
-            self.charge.ok_or(MascotError::MissingField {
-                builder: "MascotGenericFormatMetadata",
-                field: "charge",
-            })?,
+            self.charge,
             self.filename,
             self.smiles,
             self.ion_mode,
@@ -367,7 +356,7 @@ impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
         }
     }
 
-    fn parse_charge_value(charge: &str, line: &str) -> Result<i8> {
+    fn parse_charge_value(charge: &str, line: &str) -> Result<Option<i8>> {
         let charge = if let Some(magnitude) = charge.strip_suffix('+') {
             Self::parse_trailing_sign_charge(magnitude, 1, line)?
         } else if let Some(magnitude) = charge.strip_suffix('-') {
@@ -381,11 +370,34 @@ impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
                 })?
         };
 
-        Ok(charge)
+        Ok((charge != 0).then_some(charge))
     }
 
     fn digest_charge_line(&mut self, stripped: &str, line: &str) -> Result<()> {
-        let charge = Self::parse_charge_value(stripped, line)?;
+        let Some(charge) = Self::parse_charge_value(stripped, line)? else {
+            return Ok(());
+        };
+        self.set_charge(charge, line)
+    }
+
+    const fn ion_mode_from_charge(charge: i8) -> IonMode {
+        if charge.is_negative() {
+            IonMode::Negative
+        } else {
+            IonMode::Positive
+        }
+    }
+
+    fn set_charge(&mut self, charge: i8, line: &str) -> Result<()> {
+        if let Some(ion_mode) = self.ion_mode {
+            if ion_mode != Self::ion_mode_from_charge(charge) {
+                return Err(MascotError::ChargeIonModeMismatch {
+                    charge,
+                    ion_mode: ion_mode.as_str(),
+                });
+            }
+        }
+
         Self::set_parsed_field(
             &mut self.charge,
             charge,
@@ -393,6 +405,67 @@ impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
             line,
             |observed, value| observed == value,
         )
+    }
+
+    fn parse_adduct_magnitude(magnitude: &str, sign: i8) -> Option<i8> {
+        let magnitude = magnitude.parse::<u8>().ok()?;
+        if sign.is_positive() {
+            i8::try_from(magnitude).ok()
+        } else if magnitude == 128 {
+            Some(i8::MIN)
+        } else {
+            i8::try_from(magnitude).ok().map(|charge| -charge)
+        }
+    }
+
+    fn charge_and_ion_mode_from_adduct(adduct: &str) -> Option<(i8, IonMode)> {
+        let adduct = adduct.trim();
+        let (without_sign, sign, ion_mode) = if let Some(without_sign) = adduct.strip_suffix('+') {
+            (without_sign, 1_i8, IonMode::Positive)
+        } else {
+            (adduct.strip_suffix('-')?, -1_i8, IonMode::Negative)
+        };
+
+        let charge = without_sign
+            .char_indices()
+            .rev()
+            .find_map(|(index, character)| {
+                (!character.is_ascii_digit())
+                    .then_some(&without_sign[index + character.len_utf8()..])
+            })
+            .filter(|digits| !digits.is_empty())
+            .map_or(Some(sign), |digits| {
+                Self::parse_adduct_magnitude(digits, sign)
+            })?;
+
+        (charge != 0).then_some((charge, ion_mode))
+    }
+
+    fn digest_adduct_line(&mut self, adduct: &str, line: &str) -> Result<()> {
+        if let Some((charge, ion_mode)) = Self::charge_and_ion_mode_from_adduct(adduct) {
+            let adduct = adduct.trim();
+            if let Some(observed_charge) = self.charge {
+                if observed_charge != charge {
+                    return Err(MascotError::AdductChargeMismatch {
+                        adduct: adduct.to_string(),
+                        adduct_charge: charge,
+                        charge: observed_charge,
+                    });
+                }
+            }
+            if let Some(observed_ion_mode) = self.ion_mode {
+                if observed_ion_mode != ion_mode {
+                    return Err(MascotError::AdductIonModeMismatch {
+                        adduct: adduct.to_string(),
+                        adduct_ion_mode: ion_mode.as_str(),
+                        ion_mode: observed_ion_mode.as_str(),
+                    });
+                }
+            }
+            self.set_charge(charge, line)?;
+            self.set_ion_mode(ion_mode, line)?;
+        }
+        Ok(())
     }
 
     fn digest_retention_time_line(&mut self, stripped: &str, line: &str) -> Result<()> {
@@ -495,6 +568,19 @@ impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
                 field: "ion mode",
                 line: line.to_string(),
             })?;
+        self.set_ion_mode(ion_mode, line)
+    }
+
+    fn set_ion_mode(&mut self, ion_mode: IonMode, line: &str) -> Result<()> {
+        if let Some(charge) = self.charge {
+            if Self::ion_mode_from_charge(charge) != ion_mode {
+                return Err(MascotError::ChargeIonModeMismatch {
+                    charge,
+                    ion_mode: ion_mode.as_str(),
+                });
+            }
+        }
+
         Self::set_parsed_field(
             &mut self.ion_mode,
             ion_mode,
@@ -512,13 +598,7 @@ impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
             return Ok(());
         }
 
-        let source_instrument =
-            stripped
-                .parse::<Instrument>()
-                .map_err(|_| MascotError::ParseField {
-                    field: "source instrument",
-                    line: line.to_string(),
-                })?;
+        let source_instrument = Instrument::from_metadata_value(stripped);
         Self::set_parsed_field(
             &mut self.source_instrument,
             source_instrument,
@@ -532,6 +612,9 @@ impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
         let (key, value) = line
             .split_once('=')
             .ok_or_else(|| Self::unsupported_merged_scan_line_error(line))?;
+        if key.eq_ignore_ascii_case("ADDUCT") {
+            self.digest_adduct_line(value, line)?;
+        }
         let _ = insert_sorted_arbitrary_metadata(
             &mut self.arbitrary_metadata,
             key.to_string(),
@@ -573,10 +656,7 @@ impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
         Self::parse_merged_scan_count(value, line, label)
     }
 
-    fn digest_merged_scans_line(&mut self, line: &str) -> Result<()> {
-        let stripped = line
-            .strip_prefix("MERGED_SCANS=")
-            .ok_or_else(|| Self::unsupported_merged_scan_line_error(line))?;
+    fn digest_merged_scans_line(&mut self, stripped: &str, line: &str) -> Result<()> {
         let mut scan_count = 0_usize;
         for scan in stripped.split(',') {
             scan.parse::<usize>().map_err(|_| MascotError::ParseField {
@@ -596,10 +676,7 @@ impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
         Ok(())
     }
 
-    fn digest_merged_stats_line(&mut self, line: &str) -> Result<()> {
-        let stripped = line
-            .strip_prefix("MERGED_STATS=")
-            .ok_or_else(|| Self::unsupported_merged_scan_line_error(line))?;
+    fn digest_merged_stats_line(&mut self, stripped: &str) -> Result<()> {
         let (fraction, removed_scans) = stripped
             .split_once('(')
             .ok_or_else(|| Self::unsupported_merged_scan_line_error(stripped))?;
@@ -646,12 +723,12 @@ impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
     }
 
     fn digest_merge_scans_line(&mut self, line: &str) -> Result<()> {
-        if line.starts_with("MERGED_SCANS=") {
-            return self.digest_merged_scans_line(line);
+        if let Some(stripped) = line.strip_prefix("MERGED_SCANS=") {
+            return self.digest_merged_scans_line(stripped, line);
         }
 
-        if line.starts_with("MERGED_STATS=") {
-            return self.digest_merged_stats_line(line);
+        if let Some(stripped) = line.strip_prefix("MERGED_STATS=") {
+            return self.digest_merged_stats_line(stripped);
         }
 
         Err(Self::unsupported_merged_scan_line_error(line))
@@ -744,14 +821,6 @@ impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
     /// Returns whether the line can be stored as arbitrary metadata.
     pub(super) fn can_parse_arbitrary_metadata_line(line: &str) -> bool {
         line.contains('=')
-    }
-
-    /// Returns whether the parser can build a [`MascotGenericFormatMetadata`] from the lines
-    pub(super) const fn can_build(&self) -> bool {
-        self.level.is_some()
-            && self.precursor_mz.is_some()
-            && self.charge.is_some()
-            && (!self.has_merged_scan_metadata() || self.merged_scan_metadata_is_complete())
     }
 
     /// Parses a line to a [`MascotGenericFormatMetadataBuilder`].
@@ -868,7 +937,7 @@ mod tests {
                 .map(f64::to_bits),
             Some(37.083_f64.to_bits())
         );
-        assert_eq!(mascot_generic_format_metadata.charge(), 1);
+        assert_eq!(mascot_generic_format_metadata.charge(), Some(1));
         assert_eq!(
             mascot_generic_format_metadata.filename(),
             Some("20220513_PMA_DBGI_01_04_003.mzML")
@@ -944,7 +1013,22 @@ mod tests {
         assert_eq!(mascot_generic_format_metadata.scans(), None);
         assert_eq!(mascot_generic_format_metadata.level(), 2);
         assert_eq!(precursor_mz.to_bits(), 381.0795_f64.to_bits());
-        assert_eq!(mascot_generic_format_metadata.charge(), 1);
+        assert_eq!(mascot_generic_format_metadata.charge(), Some(1));
+        Ok(())
+    }
+
+    #[test]
+    fn builds_metadata_without_charge() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
+
+        parser.digest_line("PEPMASS=381.0795")?;
+        parser.digest_line("MSLEVEL=2")?;
+
+        let (mascot_generic_format_metadata, precursor_mz) = parser.build()?;
+
+        assert_eq!(mascot_generic_format_metadata.level(), 2);
+        assert_eq!(precursor_mz.to_bits(), 381.0795_f64.to_bits());
+        assert_eq!(mascot_generic_format_metadata.charge(), None);
         Ok(())
     }
 
@@ -976,7 +1060,13 @@ mod tests {
         parser.digest_line("RTINSECONDS=37.083")?;
         parser.digest_line("MERGED_SCANS=1567,1540")?;
 
-        assert!(!parser.can_build());
+        assert!(matches!(
+            parser.build(),
+            Err(MascotError::MissingField {
+                field: "retained_merged_scan_count",
+                ..
+            })
+        ));
         Ok(())
     }
 
@@ -1047,6 +1137,110 @@ mod tests {
         let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         parser.digest_line("CHARGE=1")?;
         assert!(parser.digest_line("CHARGE=2").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn derives_charge_and_ion_mode_from_adduct() -> Result<()> {
+        for (adduct, expected_charge, expected_ion_mode) in [
+            ("[M+H]+", 1, IonMode::Positive),
+            ("[M+2H]2+", 2, IonMode::Positive),
+            ("[M-H]-", -1, IonMode::Negative),
+            ("[M-2H]2-", -2, IonMode::Negative),
+        ] {
+            let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
+            parser.digest_arbitrary_metadata_line(&format!("ADDUCT={adduct}"))?;
+
+            assert_eq!(parser.charge, Some(expected_charge), "{adduct}");
+            assert_eq!(parser.ion_mode, Some(expected_ion_mode), "{adduct}");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn ignores_adducts_without_parseable_charge() -> Result<()> {
+        for adduct in ["N/A", "not-a-standard-adduct", "[M+H]"] {
+            let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
+            parser.digest_arbitrary_metadata_line(&format!("ADDUCT={adduct}"))?;
+
+            assert_eq!(parser.charge, None, "{adduct}");
+            assert_eq!(parser.ion_mode, None, "{adduct}");
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_adduct_charge_conflicts() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
+        parser.digest_line("CHARGE=1")?;
+
+        assert!(matches!(
+            parser.digest_arbitrary_metadata_line("ADDUCT=[M-H]-"),
+            Err(MascotError::AdductChargeMismatch {
+                adduct_charge: -1,
+                charge: 1,
+                ..
+            })
+        ));
+
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_adduct_ion_mode_conflicts() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
+        parser.digest_line("IONMODE=Positive")?;
+
+        assert!(matches!(
+            parser.digest_arbitrary_metadata_line("ADDUCT=[M-H]-"),
+            Err(MascotError::AdductIonModeMismatch {
+                adduct_ion_mode: "Negative",
+                ion_mode: "Positive",
+                ..
+            })
+        ));
+
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_charge_ion_mode_conflicts() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
+        parser.digest_line("CHARGE=1")?;
+        assert!(matches!(
+            parser.digest_line("IONMODE=Negative"),
+            Err(MascotError::ChargeIonModeMismatch {
+                charge: 1,
+                ion_mode: "Negative",
+            })
+        ));
+
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
+        parser.digest_line("IONMODE=Negative")?;
+        assert!(matches!(
+            parser.digest_line("CHARGE=1"),
+            Err(MascotError::ChargeIonModeMismatch {
+                charge: 1,
+                ion_mode: "Negative",
+            })
+        ));
+
+        Ok(())
+    }
+
+    #[test]
+    fn treats_zero_charge_as_missing() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
+
+        parser.digest_line("CHARGE=0")?;
+        assert_eq!(parser.charge, None);
+        parser.digest_line("CHARGE=1")?;
+        parser.digest_line("CHARGE=0+")?;
+        parser.digest_line("CHARGE=0-")?;
+
+        assert_eq!(parser.charge, Some(1));
         Ok(())
     }
 
@@ -1145,7 +1339,8 @@ mod tests {
             parser.digest_line(line)?;
         }
 
-        assert!(parser.can_build());
+        let (metadata, _precursor_mz) = parser.build()?;
+        assert_eq!(metadata.charge(), Some(1));
         Ok(())
     }
 
@@ -1221,17 +1416,6 @@ mod tests {
             parser.build(),
             Err(MascotError::MissingField {
                 field: "precursor_mz",
-                ..
-            })
-        ));
-
-        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
-        parser.digest_line("PEPMASS=381.0795")?;
-        parser.digest_line("MSLEVEL=2")?;
-        assert!(matches!(
-            parser.build(),
-            Err(MascotError::MissingField {
-                field: "charge",
                 ..
             })
         ));

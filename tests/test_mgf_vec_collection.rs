@@ -8,7 +8,7 @@ fn record(feature_id: u32) -> Result<MascotGenericFormat> {
         Some(feature_id.to_string()),
         2,
         Some(feature_id_as_f64),
-        1,
+        Some(1),
         None,
     )?;
 

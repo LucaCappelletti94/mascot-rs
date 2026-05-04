@@ -89,14 +89,6 @@ impl<P: SpectrumFloat> MascotGenericFormatBuilder<P> {
         Ok(())
     }
 
-    pub(super) const fn can_build(&self) -> bool {
-        !self.section_open && self.metadata_builder.can_build() && !self.peaks.is_empty()
-    }
-
-    pub(super) const fn can_skip_empty_section(&self) -> bool {
-        !self.section_open && self.metadata_builder.can_build() && self.peaks.is_empty()
-    }
-
     /// Digests the given line.
     ///
     /// # Arguments
@@ -109,8 +101,18 @@ impl<P: SpectrumFloat> MascotGenericFormatBuilder<P> {
     /// * If the line cannot be digested.
     pub(super) fn digest_line(&mut self, line: &str) -> Result<()> {
         if line == "BEGIN IONS" {
+            if self.section_open {
+                return Err(MascotError::NestedIonSection {
+                    line: line.to_string(),
+                });
+            }
             self.section_open = true;
         } else if line == "END IONS" {
+            if !self.section_open {
+                return Err(MascotError::LineOutsideIonSection {
+                    line: line.to_string(),
+                });
+            }
             self.section_open = false;
         } else if MascotGenericFormatMetadataBuilder::<P>::can_parse_line(line) {
             self.metadata_builder.digest_line(line)?;

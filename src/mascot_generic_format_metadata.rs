@@ -123,20 +123,9 @@ impl Instrument {
         normalized.retain(|character| character.is_ascii_alphanumeric());
         normalized
     }
-}
 
-impl fmt::Display for Instrument {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(self.as_str())
-    }
-}
-
-impl FromStr for Instrument {
-    type Err = MascotError;
-
-    fn from_str(s: &str) -> Result<Self> {
-        let normalized = Self::normalized_key(s);
-        Ok(match normalized.as_str() {
+    pub(crate) fn from_metadata_value(value: &str) -> Self {
+        match Self::normalized_key(value).as_str() {
             "orbitrap"
             | "lcesiorbitrap"
             | "esiorbitrap"
@@ -189,7 +178,21 @@ impl FromStr for Instrument {
             | "diesiltqfticr" => Self::FourierTransform,
             "magneticsector" | "esifabebeb" => Self::MagneticSector,
             _ => Self::Other,
-        })
+        }
+    }
+}
+
+impl fmt::Display for Instrument {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for Instrument {
+    type Err = MascotError;
+
+    fn from_str(s: &str) -> Result<Self> {
+        Ok(Self::from_metadata_value(s))
     }
 }
 
@@ -202,7 +205,7 @@ pub struct MascotGenericFormatMetadata {
     scans: Option<String>,
     level: u8,
     retention_time: Option<f64>,
-    charge: i8,
+    charge: Option<i8>,
     filename: Option<String>,
     smiles: Option<SmilesMetadata>,
     formula: Option<FormulaMetadata>,
@@ -276,7 +279,7 @@ impl MascotGenericFormatMetadata {
     /// * `feature_id` - The feature ID of the metadata, if present.
     /// * `level` - The MS fragmentation level.
     /// * `retention_time` - The retention time of the metadata, if present.
-    /// * `charge` - The precursor charge of the metadata.
+    /// * `charge` - The precursor charge of the metadata, if known.
     /// * `filename` - The filename of the metadata.
     ///
     /// # Returns
@@ -285,6 +288,7 @@ impl MascotGenericFormatMetadata {
     /// # Errors
     /// * If `level` is zero.
     /// * If `retention_time` is present but not finite and strictly positive.
+    /// * If `charge` and `ion_mode` report opposite polarities.
     /// * If `filename` is empty.
     ///
     /// # Examples
@@ -295,7 +299,7 @@ impl MascotGenericFormatMetadata {
     /// let feature_id = Some("1".to_string());
     /// let level = 2;
     /// let retention_time = Some(37.083);
-    /// let charge = 1;
+    /// let charge = Some(1);
     /// let filename = Some("20220513_PMA_DBGI_01_04_003.mzML".to_string());
     ///
     /// let mascot_generic_format_metadata: MascotGenericFormatMetadata = MascotGenericFormatMetadata::new(
@@ -348,7 +352,7 @@ impl MascotGenericFormatMetadata {
         feature_id: Option<String>,
         level: u8,
         retention_time: Option<f64>,
-        charge: i8,
+        charge: Option<i8>,
         filename: Option<String>,
     ) -> Result<Self> {
         Self::new_with_smiles(feature_id, level, retention_time, charge, filename, None)
@@ -361,7 +365,7 @@ impl MascotGenericFormatMetadata {
     /// * `feature_id` - The feature ID of the metadata, if present.
     /// * `level` - The MS fragmentation level.
     /// * `retention_time` - The retention time of the metadata, if present.
-    /// * `charge` - The precursor charge of the metadata.
+    /// * `charge` - The precursor charge of the metadata, if known.
     /// * `filename` - The filename of the metadata.
     /// * `smiles` - The parsed SMILES metadata, if present.
     ///
@@ -380,7 +384,7 @@ impl MascotGenericFormatMetadata {
     ///     Some("1".to_string()),
     ///     2,
     ///     Some(37.083),
-    ///     1,
+    ///     Some(1),
     ///     None,
     ///     Some(smiles),
     /// ).unwrap();
@@ -391,7 +395,7 @@ impl MascotGenericFormatMetadata {
         feature_id: Option<String>,
         level: u8,
         retention_time: Option<f64>,
-        charge: i8,
+        charge: Option<i8>,
         filename: Option<String>,
         smiles: Option<Smiles>,
     ) -> Result<Self> {
@@ -413,7 +417,7 @@ impl MascotGenericFormatMetadata {
     /// * `feature_id` - The feature ID of the metadata, if present.
     /// * `level` - The MS fragmentation level.
     /// * `retention_time` - The retention time of the metadata, if present.
-    /// * `charge` - The precursor charge of the metadata.
+    /// * `charge` - The precursor charge of the metadata, if known.
     /// * `filename` - The filename of the metadata.
     /// * `smiles` - The parsed SMILES metadata, if present.
     /// * `ion_mode` - The ionization polarity, if present.
@@ -433,7 +437,7 @@ impl MascotGenericFormatMetadata {
     ///         Some("1".to_string()),
     ///         2,
     ///         None,
-    ///         1,
+    ///         Some(1),
     ///         None,
     ///         None,
     ///         Some(IonMode::Positive),
@@ -445,11 +449,12 @@ impl MascotGenericFormatMetadata {
         feature_id: Option<String>,
         level: u8,
         retention_time: Option<f64>,
-        charge: i8,
+        charge: Option<i8>,
         filename: Option<String>,
         smiles: Option<Smiles>,
         ion_mode: Option<IonMode>,
     ) -> Result<Self> {
+        let charge = charge.filter(|charge| *charge != 0);
         if level == 0 {
             return Err(MascotError::NonPositiveField {
                 field: "fragmentation level",
@@ -468,6 +473,17 @@ impl MascotGenericFormatMetadata {
         if let Some(filename) = &filename {
             if filename.is_empty() {
                 return Err(MascotError::EmptyFilename);
+            }
+        }
+
+        if let (Some(charge), Some(ion_mode)) = (charge, ion_mode) {
+            if (charge.is_negative() && !ion_mode.is_negative())
+                || (charge.is_positive() && !ion_mode.is_positive())
+            {
+                return Err(MascotError::ChargeIonModeMismatch {
+                    charge,
+                    ion_mode: ion_mode.as_str(),
+                });
             }
         }
 
@@ -511,7 +527,7 @@ impl MascotGenericFormatMetadata {
     ///         Some("1".to_string()),
     ///         2,
     ///         None,
-    ///         1,
+    ///         Some(1),
     ///         None,
     ///         None,
     ///         Some(IonMode::Positive),
@@ -544,7 +560,7 @@ impl MascotGenericFormatMetadata {
     ///     Some("feature-a".to_string()),
     ///     2,
     ///     None,
-    ///     1,
+    ///     Some(1),
     ///     None,
     /// ).unwrap()
     /// .with_scans(Some("176-199".to_string()));
@@ -575,7 +591,7 @@ impl MascotGenericFormatMetadata {
     ///         Some("1".to_string()),
     ///         2,
     ///         None,
-    ///         1,
+    ///         Some(1),
     ///         None,
     ///     ).unwrap()
     ///     .with_arbitrary_metadata(vec![
@@ -608,7 +624,7 @@ impl MascotGenericFormatMetadata {
     ///         Some("1".to_string()),
     ///         2,
     ///         None,
-    ///         1,
+    ///         Some(1),
     ///         None,
     ///     ).unwrap();
     ///
@@ -657,9 +673,9 @@ impl MascotGenericFormatMetadata {
         self.retention_time
     }
 
-    /// Returns the charge of the metadata.
+    /// Returns the precursor charge of the metadata, if known.
     #[must_use]
-    pub const fn charge(&self) -> i8 {
+    pub const fn charge(&self) -> Option<i8> {
         self.charge
     }
 

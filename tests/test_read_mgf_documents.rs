@@ -66,6 +66,110 @@ fn test_from_reader_rejects_empty_records_with_line_context() {
 }
 
 #[test]
+fn test_from_reader_reports_incomplete_record_at_end_ions() {
+    let document = concat!(
+        "BEGIN IONS\n",
+        "FEATURE_ID=9\n",
+        "MSLEVEL=2\n",
+        "CHARGE=1\n",
+        "100.0 2.0\n",
+        "END IONS\n",
+        "\n",
+        "BEGIN IONS\n",
+        "FEATURE_ID=10\n",
+        "PEPMASS=247.89272\n",
+        "MSLEVEL=2\n",
+        "CHARGE=1\n",
+        "100.0 2.0\n",
+        "END IONS\n",
+    );
+
+    assert!(matches!(
+        MGFVec::<f64>::from_reader(std::io::Cursor::new(document)),
+        Err(MascotError::InputLine {
+            line_number: 6,
+            source,
+            ..
+        }) if matches!(
+            source.as_ref(),
+            MascotError::MissingField {
+                field: "precursor_mz",
+                ..
+            }
+        )
+    ));
+}
+
+#[test]
+fn test_from_reader_rejects_nested_begin_ions() {
+    let document = concat!(
+        "BEGIN IONS\n",
+        "FEATURE_ID=1\n",
+        "PEPMASS=500.0\n",
+        "CHARGE=1\n",
+        "MSLEVEL=2\n",
+        "BEGIN IONS\n",
+        "FEATURE_ID=2\n",
+        "PEPMASS=600.0\n",
+        "CHARGE=1\n",
+        "MSLEVEL=2\n",
+        "100.0 2.0\n",
+        "END IONS\n",
+    );
+
+    assert!(matches!(
+        MGFVec::<f64>::from_reader(std::io::Cursor::new(document)),
+        Err(MascotError::InputLine {
+            line_number: 6,
+            source,
+            ..
+        }) if matches!(source.as_ref(), MascotError::NestedIonSection { .. })
+    ));
+}
+
+#[test]
+fn test_from_reader_rejects_end_ions_outside_section() {
+    let document = concat!(
+        "END IONS\n",
+        "BEGIN IONS\n",
+        "FEATURE_ID=1\n",
+        "PEPMASS=500.0\n",
+        "CHARGE=1\n",
+        "MSLEVEL=2\n",
+        "100.0 2.0\n",
+        "END IONS\n",
+    );
+
+    assert!(matches!(
+        MGFVec::<f64>::from_reader(std::io::Cursor::new(document)),
+        Err(MascotError::InputLine {
+            line_number: 1,
+            source,
+            ..
+        }) if matches!(source.as_ref(), MascotError::LineOutsideIonSection { .. })
+    ));
+}
+
+#[test]
+fn test_from_reader_rejects_unclosed_record_at_eof() {
+    let document = concat!(
+        "BEGIN IONS\n",
+        "FEATURE_ID=1\n",
+        "PEPMASS=500.0\n",
+        "CHARGE=1\n",
+        "MSLEVEL=2\n",
+        "100.0 2.0\n",
+    );
+
+    assert!(matches!(
+        MGFVec::<f64>::from_reader(std::io::Cursor::new(document)),
+        Err(MascotError::UnclosedIonSection {
+            begin_line_number: 1
+        })
+    ));
+}
+
+#[test]
 fn test_from_reader_filters_zero_intensity_peak_lines() -> Result<()> {
     let document = concat!(
         "BEGIN IONS\n",
@@ -202,6 +306,21 @@ fn test_mgf_iter_reports_line_context_and_stops() {
         Some(Err(MascotError::InputLine { line_number: 2, .. }))
     ));
     assert!(iter.next().is_none());
+}
+
+#[test]
+fn test_mgf_iter_skips_unclosed_record_at_eof_in_tolerant_mode() {
+    let document = concat!(
+        "BEGIN IONS\n",
+        "FEATURE_ID=1\n",
+        "PEPMASS=500.0\n",
+        "MSLEVEL=2\n",
+        "100.0 2.0\n",
+    );
+    let mut iter = MGFIter::<f64, _>::from_document(document).skipping_invalid_records();
+
+    assert!(iter.next().is_none());
+    assert_eq!(iter.skipped_records(), 1);
 }
 
 #[test]
@@ -425,6 +544,7 @@ RTINSECONDS=10.0
 MSLEVEL=2
 FILENAME=sample.mzML
 SMILES=CCO
+FORMULA=C2H6O
 IONMODE=Positive
 SOURCE_INSTRUMENT=LC-ESI-Orbitrap
 SPECTYPE=CORRELATED MS
@@ -452,6 +572,7 @@ END IONS
     let reparsed: MGFVec = serialized.parse()?;
 
     assert!(serialized.contains("SOURCE_INSTRUMENT=Orbitrap"));
+    assert!(serialized.contains("FORMULA=C2H6O"));
     assert!(serialized.contains("NAME=Example spectrum"));
     assert!(serialized.contains("SPECTYPE=CORRELATED MS"));
     assert!(serialized.contains("SCANS=-1"));
@@ -467,6 +588,7 @@ END IONS
             .as_deref(),
         Some("CCO")
     );
+    assert!(reparsed[0].formula().is_some());
     assert_eq!(reparsed[0].ion_mode(), Some(IonMode::Positive));
     assert_eq!(reparsed[0].source_instrument(), Some(Instrument::Orbitrap));
     assert_eq!(
@@ -493,8 +615,41 @@ END IONS
         ]
     );
     assert_eq!(reparsed[1].feature_id(), None);
-    assert_eq!(reparsed[1].charge(), -1);
+    assert_eq!(reparsed[1].charge(), Some(-1));
     assert_eq!(reparsed[1].ion_mode(), Some(IonMode::Negative));
+
+    Ok(())
+}
+
+#[test]
+fn test_single_mgf_writes_structured_validation_headers(
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    const VALID_SPLASH: &str = "splash10-0udi-0490000000-4425acda10ed7d4709bd";
+
+    let document = concat!(
+        "BEGIN IONS\n",
+        "PEPMASS=250.0\n",
+        "CHARGE=1\n",
+        "MSLEVEL=2\n",
+        "SMILES=CCO\n",
+        "FORMULA=C2H6O\n",
+        "SPLASH=splash10-0udi-0490000000-4425acda10ed7d4709bd\n",
+        "100.0 10.0\n",
+        "200.0 20.0\n",
+        "END IONS\n",
+    );
+    let record: MascotGenericFormat = document.parse()?;
+    let mut output = Vec::new();
+
+    record.write_to(&mut output)?;
+
+    let serialized = std::str::from_utf8(&output)?;
+    let reparsed: MascotGenericFormat = serialized.parse()?;
+
+    assert!(serialized.contains("FORMULA=C2H6O"));
+    assert!(serialized.contains(&format!("SPLASH={VALID_SPLASH}")));
+    assert_eq!(reparsed.metadata().splash(), Some(VALID_SPLASH));
+    assert!(reparsed.formula().is_some());
 
     Ok(())
 }
@@ -525,6 +680,32 @@ END IONS
     assert_eq!(reparsed.metadata().scans(), Some("7"));
     assert_eq!(reparsed.precursor_mz().to_bits(), 700.0_f32.to_bits());
     assert_eq!(reparsed.mz_nth(0).to_bits(), 100.0_f32.to_bits());
+
+    Ok(())
+}
+
+#[test]
+fn test_unknown_charge_is_not_serialized_as_zero(
+) -> std::result::Result<(), Box<dyn std::error::Error>> {
+    let document = r"BEGIN IONS
+FEATURE_ID=8
+PEPMASS=800.0
+MSLEVEL=2
+100.0 2.0
+SCANS=8
+END IONS
+";
+    let record: MascotGenericFormat<f32> = document.parse()?;
+    let mut output = Vec::new();
+
+    record.write_to(&mut output)?;
+
+    let serialized = std::str::from_utf8(&output)?;
+    let reparsed: MascotGenericFormat<f32> = serialized.parse()?;
+
+    assert_eq!(record.charge(), None);
+    assert!(!serialized.contains("CHARGE="));
+    assert_eq!(reparsed.charge(), None);
 
     Ok(())
 }
@@ -745,7 +926,7 @@ fn test_mgf_vec_iteration_helpers_are_standard_collection_interfaces() -> Result
         "SCANS=2\n",
         "END IONS\n",
     );
-    let mgf: MGFVec = document.parse()?;
+    let mut mgf: MGFVec = document.parse()?;
 
     let iter_ids = mgf
         .iter()
@@ -755,6 +936,20 @@ fn test_mgf_vec_iteration_helpers_are_standard_collection_interfaces() -> Result
         .into_iter()
         .map(|record| record.feature_id().map(ToString::to_string))
         .collect::<Vec<_>>();
+    mgf.iter_mut().for_each(|record| {
+        record
+            .metadata_mut()
+            .insert_arbitrary_metadata("ITER_MUT", "yes");
+    });
+    for record in &mut mgf {
+        record
+            .metadata_mut()
+            .insert_arbitrary_metadata("BORROWED_MUT", "yes");
+    }
+    assert!(mgf.iter().all(|record| {
+        record.metadata().arbitrary_metadata_value("ITER_MUT") == Some("yes")
+            && record.metadata().arbitrary_metadata_value("BORROWED_MUT") == Some("yes")
+    }));
     let filtered: MGFVec = mgf
         .into_iter()
         .filter(|record| record.feature_id() == Some("2"))
@@ -866,7 +1061,8 @@ fn test_spectrum_access_uses_standard_traits() -> Result<()> {
         vec![2.0_f64.to_bits(), 3.0_f64.to_bits()]
     );
     assert_eq!(mgf[0].peak_nth(1).0.to_bits(), 200.0_f64.to_bits());
-    assert_eq!(mgf[0].charge(), 1);
+    assert_eq!(mgf[0].scans(), Some("1"));
+    assert_eq!(mgf[0].charge(), Some(1));
     assert_eq!(mgf[0].ion_mode(), Some(IonMode::Positive));
     assert!(mgf[0].ion_mode().is_some_and(IonMode::is_positive));
     assert_eq!(mgf[0].source_instrument(), Some(Instrument::Orbitrap));
@@ -876,7 +1072,8 @@ fn test_spectrum_access_uses_standard_traits() -> Result<()> {
         Some(Some("1"))
     );
 
-    let metadata = MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(10.0), 1, None)?;
+    let metadata =
+        MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(10.0), Some(1), None)?;
     let record = MascotGenericFormat::new(metadata, 500.0, vec![100.0, 200.0], vec![2.0, 3.0])?;
     let spectrum: GenericSpectrum = record.into();
     assert_eq!(spectrum.len(), 2);
@@ -930,7 +1127,7 @@ fn test_metadata_parses_optional_ion_mode() -> Result<()> {
     let negative_lines = [
         "BEGIN IONS",
         "PEPMASS=500.0",
-        "CHARGE=1",
+        "CHARGE=-1",
         "RTINSECONDS=10.0",
         "MSLEVEL=2",
         "IONMODE=negative",
@@ -958,7 +1155,7 @@ fn test_metadata_parses_optional_ion_mode() -> Result<()> {
             Some("1".to_string()),
             2,
             None,
-            1,
+            Some(-1),
             None,
             None,
             Some(IonMode::Negative),
@@ -974,6 +1171,21 @@ fn test_metadata_parses_optional_ion_mode() -> Result<()> {
     assert_eq!(IonMode::Positive.as_str(), "Positive");
     assert_eq!(IonMode::Negative.to_string(), "Negative");
     assert_eq!(metadata.ion_mode(), Some(IonMode::Negative));
+    assert!(matches!(
+        MascotGenericFormatMetadata::new_with_smiles_and_ion_mode(
+            Some("1".to_string()),
+            2,
+            None,
+            Some(1),
+            None,
+            None,
+            Some(IonMode::Negative),
+        ),
+        Err(MascotError::ChargeIonModeMismatch {
+            charge: 1,
+            ion_mode: "Negative",
+        })
+    ));
     assert_eq!(missing_mgf[0].ion_mode(), None);
 
     Ok(())
@@ -1035,7 +1247,7 @@ fn test_metadata_parses_optional_source_instrument() -> Result<()> {
             Some("1".to_string()),
             2,
             None,
-            1,
+            Some(1),
             None,
             None,
             Some(IonMode::Positive),
@@ -1056,8 +1268,14 @@ fn test_metadata_parses_optional_source_instrument() -> Result<()> {
     );
     assert_eq!(missing_mgf[0].source_instrument(), None);
     assert_eq!(unknown_mgf[0].source_instrument(), Some(Instrument::Other));
+    assert_eq!(missing_mgf[0].formula(), None);
     assert_eq!(Instrument::Quadrupole.to_string(), "Quadrupole");
     assert_eq!(Instrument::Orbitrap.as_str(), "Orbitrap");
+    assert_eq!(Instrument::TimeOfFlight.as_str(), "TOF");
+    assert_eq!(Instrument::IonTrap.as_str(), "Ion trap");
+    assert_eq!(Instrument::FourierTransform.as_str(), "Fourier transform");
+    assert_eq!(Instrument::MagneticSector.as_str(), "Magnetic sector");
+    assert_eq!(Instrument::Other.as_str(), "Other");
     assert_eq!(metadata.source_instrument(), Some(Instrument::Orbitrap));
 
     Ok(())
@@ -1065,7 +1283,8 @@ fn test_metadata_parses_optional_source_instrument() -> Result<()> {
 
 #[test]
 fn test_metadata_inserts_arbitrary_metadata() -> Result<()> {
-    let mut metadata = MascotGenericFormatMetadata::new(Some("1".to_string()), 2, None, 1, None)?;
+    let mut metadata =
+        MascotGenericFormatMetadata::new(Some("1".to_string()), 2, None, Some(1), None)?;
 
     let first_previous_value = metadata.insert_arbitrary_metadata("SPECTRUMID", "old-id");
     let name_previous_value = metadata.insert_arbitrary_metadata("NAME", "Example");
@@ -1112,7 +1331,8 @@ fn test_metadata_rejects_invalid_smiles() {
 
 #[test]
 fn test_record_constructor_rejects_invalid_peak_inputs() -> Result<()> {
-    let metadata = MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(10.0), 1, None)?;
+    let metadata =
+        MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(10.0), Some(1), None)?;
     assert!(matches!(
         MascotGenericFormat::new(metadata.clone(), 500.0, vec![100.0], vec![]),
         Err(MascotError::PeakVectorLengthMismatch { .. })
@@ -1123,7 +1343,7 @@ fn test_record_constructor_rejects_invalid_peak_inputs() -> Result<()> {
     ));
 
     let first_level_metadata =
-        MascotGenericFormatMetadata::new(Some("1".to_string()), 1, Some(10.0), 1, None)?;
+        MascotGenericFormatMetadata::new(Some("1".to_string()), 1, Some(10.0), Some(1), None)?;
     assert!(matches!(
         MascotGenericFormat::new(first_level_metadata, 500.0, vec![100.0], vec![1.0]),
         Err(MascotError::FirstLevelPrecursorMzMismatch { .. })
@@ -1135,21 +1355,21 @@ fn test_record_constructor_rejects_invalid_peak_inputs() -> Result<()> {
 #[test]
 fn test_metadata_rejects_invalid_values() {
     assert!(matches!(
-        MascotGenericFormatMetadata::new(Some("1".to_string()), 0, Some(10.0), 1, None),
+        MascotGenericFormatMetadata::new(Some("1".to_string()), 0, Some(10.0), Some(1), None),
         Err(MascotError::NonPositiveField {
             field: "fragmentation level",
             ..
         })
     ));
     assert!(matches!(
-        MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(0.0), 1, None),
+        MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(0.0), Some(1), None),
         Err(MascotError::NonPositiveField {
             field: "retention time",
             ..
         })
     ));
     assert!(matches!(
-        MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(f64::NAN), 1, None),
+        MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(f64::NAN), Some(1), None),
         Err(MascotError::NonFiniteField {
             field: "retention time",
             ..
@@ -1160,7 +1380,7 @@ fn test_metadata_rejects_invalid_values() {
             Some("1".to_string()),
             2,
             Some(10.0),
-            1,
+            Some(1),
             Some(String::new()),
         ),
         Err(MascotError::EmptyFilename)
@@ -1190,7 +1410,8 @@ fn test_precision_generic_can_store_f32_spectra() -> Result<()> {
     assert_eq!(spectrum_ref.mz_nth(0).to_bits(), 100.0_f32.to_bits());
     assert_eq!(spectrum_ref.intensity_nth(1).to_bits(), 3.0_f32.to_bits());
 
-    let metadata = MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(10.0), 1, None)?;
+    let metadata =
+        MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(10.0), Some(1), None)?;
     let record: MascotGenericFormat<f32> =
         MascotGenericFormat::new(metadata, 500.0, vec![100.0, 200.0], vec![2.0, 3.0])?;
     let spectrum: GenericSpectrum<f32> = record.into();
@@ -1206,7 +1427,7 @@ fn test_mgf_record_implements_allocable_spectrum_traits() -> Result<()> {
     let mut allocated = MascotGenericFormat::<f32>::with_capacity(500.0, 2)?;
     assert_allocable(&allocated);
     assert_eq!(allocated.level(), 2);
-    assert_eq!(allocated.charge(), 0);
+    assert_eq!(allocated.charge(), None);
     assert!(allocated.feature_id().is_none());
     assert!(allocated.is_empty());
 
@@ -1214,7 +1435,8 @@ fn test_mgf_record_implements_allocable_spectrum_traits() -> Result<()> {
     allocated.add_peak(200.0, 3.0)?;
     assert_eq!(allocated.len(), 2);
 
-    let metadata = MascotGenericFormatMetadata::new(Some("7".to_string()), 2, Some(10.0), 1, None)?;
+    let metadata =
+        MascotGenericFormatMetadata::new(Some("7".to_string()), 2, Some(10.0), Some(1), None)?;
     let record: MascotGenericFormat<f32> = MascotGenericFormat::new(
         metadata,
         500.0,
@@ -1264,7 +1486,7 @@ fn test_memory_footprint_is_available_from_prelude() -> Result<()> {
     assert!(size >= std::mem::size_of_val(&mgf));
     assert!(capacity_size >= size);
     let metadata_without_smiles =
-        MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(10.0), 1, None)?
+        MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(10.0), Some(1), None)?
             .with_scans(Some("1".to_string()));
     assert!(metadata_size >= std::mem::size_of_val(mgf[0].metadata()));
     assert_eq!(
@@ -1587,6 +1809,12 @@ ADDUCT=[M-H]-
 INSTRUMENT_TYPE=QTOF
 50.0 1.0
 END IONS
+BEGIN IONS
+IDENTIFIER=MassSpecGymID0000003
+PRECURSOR_MZ=150.0
+INSTRUMENT_TYPE=Orbitrap
+75.0 1.0
+END IONS
 ";
     std::fs::write(&path, document).map_err(|source| MascotError::Io {
         path: path.display().to_string(),
@@ -1594,18 +1822,18 @@ END IONS
     })?;
     let expected_bytes = document.len() as u64;
 
-    let load = pollster::block_on(builder.load())?;
+    let load = pollster::block_on(Dataset::load(builder))?;
     let _ = std::fs::remove_dir_all(&target_directory);
 
     assert!(load.mem_size(SizeFlags::default()) >= std::mem::size_of_val(&load));
-    assert_eq!(load.spectra().len(), 1);
-    assert_eq!(load.as_ref().len(), 1);
+    assert_eq!(load.spectra().len(), 2);
+    assert_eq!(load.as_ref().len(), 2);
     assert_eq!(load.skipped_records(), 1);
     assert_eq!(load.path(), path.as_path());
     assert_eq!(load.bytes(), expected_bytes);
     assert_eq!(load.spectra()[0].feature_id(), Some("MassSpecGymID0000001"));
     assert_eq!(load.spectra()[0].level(), 2);
-    assert_eq!(load.spectra()[0].charge(), 1);
+    assert_eq!(load.spectra()[0].charge(), Some(1));
     assert_eq!(load.spectra()[0].ion_mode(), Some(IonMode::Positive));
     assert_eq!(
         load.spectra()[0].source_instrument(),
@@ -1623,8 +1851,11 @@ END IONS
             .arbitrary_metadata_value("ADDUCT"),
         Some("[M+H]+")
     );
+    assert_eq!(load.spectra()[1].feature_id(), Some("MassSpecGymID0000003"));
+    assert_eq!(load.spectra()[1].charge(), None);
+    assert_eq!(load.spectra()[1].ion_mode(), None);
     let spectra = load.into_spectra();
-    assert_eq!(spectra.len(), 1);
+    assert_eq!(spectra.len(), 2);
 
     Ok(())
 }

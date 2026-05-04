@@ -93,7 +93,7 @@ END IONS";
 
 fn assert_mona_style_spectrum(spectra: &MGFVec) {
     assert_eq!(spectra.len(), 1);
-    assert_eq!(spectra[0].charge(), 1);
+    assert_eq!(spectra[0].charge(), Some(1));
     assert_eq!(spectra[0].level(), 2);
     assert_eq!(spectra[0].precursor_mz().to_bits(), 360.0_f64.to_bits());
     assert_eq!(spectra[0].ion_mode(), Some(IonMode::Positive));
@@ -153,7 +153,7 @@ CHARGE=1+
 ION_MODE=positive
 SOURCE_INSTRUMENT=LC-ESI-QQ
 INSTRUMENT_TYPE=LC-ESI-QQ
-ADDUCT=[M-H]-
+ADDUCT=[M+H]+
 FORMULA=C12H8F3N5O3S
 51.0 0.08608609
 END IONS
@@ -162,12 +162,12 @@ END IONS
     let spectra: MGFVec = document.parse()?;
 
     assert_eq!(spectra.len(), 1);
-    assert_eq!(spectra[0].charge(), 1);
+    assert_eq!(spectra[0].charge(), Some(1));
     assert_eq!(spectra[0].level(), 2);
     assert_eq!(spectra[0].source_instrument(), Some(Instrument::Quadrupole));
     assert_eq!(
         spectra[0].metadata().arbitrary_metadata_value("ADDUCT"),
-        Some("[M-H]-")
+        Some("[M+H]+")
     );
     assert!(spectra[0].metadata().formula().is_some());
 

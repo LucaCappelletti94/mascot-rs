@@ -62,6 +62,30 @@ fn accepts_formula_that_matches_smiles_after_isotopic_normalization() -> Result<
 }
 
 #[test]
+fn treats_missing_formula_and_splash_markers_as_absent() -> Result<()> {
+    let document = concat!(
+        "BEGIN IONS\n",
+        "PEPMASS=250.0\n",
+        "CHARGE=1\n",
+        "MSLEVEL=2\n",
+        "SMILES=CCO\n",
+        "FORMULA=N/A\n",
+        "SPLASH=N/A\n",
+        "100.0 10.0\n",
+        "200.0 20.0\n",
+        "END IONS\n",
+    );
+
+    let spectra: MGFVec = document.parse()?;
+
+    assert_eq!(spectra.len(), 1);
+    assert!(spectra[0].metadata().formula().is_none());
+    assert_eq!(spectra[0].metadata().splash(), None);
+
+    Ok(())
+}
+
+#[test]
 fn accepts_mass_spec_gym_isotopic_bromine_formula_order() -> Result<()> {
     let document = valid_document_with_smiles(
         VALID_SPLASH,

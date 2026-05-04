@@ -207,8 +207,16 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
     }
 
     fn digest_precursor_mz_line(&mut self, stripped: &str, line: &str) -> Result<()> {
-        let precursor_mz =
-            numeric::parse_positive_spectrum_float::<P>(stripped, PRECURSOR_MZ_FIELD, line)?;
+        let precursor_mz = stripped
+            .split_whitespace()
+            .next()
+            .ok_or_else(|| MascotError::ParseField {
+                field: PRECURSOR_MZ_FIELD,
+                line: line.to_string(),
+            })
+            .and_then(|value| {
+                numeric::parse_positive_spectrum_float::<P>(value, PRECURSOR_MZ_FIELD, line)
+            })?;
 
         Self::set_parsed_field(
             &mut self.precursor_mz,
@@ -220,6 +228,13 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
     }
 
     fn parse_ms_level_value(stripped: &str, line: &str) -> Result<u8> {
+        let stripped = stripped.trim();
+        let stripped = stripped
+            .strip_prefix("MS")
+            .or_else(|| stripped.strip_prefix("Ms"))
+            .or_else(|| stripped.strip_prefix("mS"))
+            .or_else(|| stripped.strip_prefix("ms"))
+            .unwrap_or(stripped);
         let level = stripped
             .parse::<u8>()
             .map_err(|_| MascotError::ParseField {
@@ -555,11 +570,17 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
             return Some(MGFMetadataLine::FeatureId(stripped));
         }
 
-        if let Some(stripped) = line.strip_prefix("PEPMASS=") {
+        if let Some(stripped) = line
+            .strip_prefix("PEPMASS=")
+            .or_else(|| line.strip_prefix("PRECURSOR_MZ="))
+        {
             return Some(MGFMetadataLine::PrecursorMz(stripped));
         }
 
-        if let Some(stripped) = line.strip_prefix("MSLEVEL=") {
+        if let Some(stripped) = line
+            .strip_prefix("MSLEVEL=")
+            .or_else(|| line.strip_prefix("MS_LEVEL="))
+        {
             return Some(MGFMetadataLine::MsLevel(stripped));
         }
 
@@ -583,11 +604,17 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
             return Some(MGFMetadataLine::Smiles(stripped));
         }
 
-        if let Some(stripped) = line.strip_prefix("IONMODE=") {
+        if let Some(stripped) = line
+            .strip_prefix("IONMODE=")
+            .or_else(|| line.strip_prefix("ION_MODE="))
+        {
             return Some(MGFMetadataLine::IonMode(stripped));
         }
 
-        if let Some(stripped) = line.strip_prefix("SOURCE_INSTRUMENT=") {
+        if let Some(stripped) = line
+            .strip_prefix("SOURCE_INSTRUMENT=")
+            .or_else(|| line.strip_prefix("INSTRUMENT_TYPE="))
+        {
             return Some(MGFMetadataLine::SourceInstrument(stripped));
         }
 

@@ -165,6 +165,7 @@ impl FromStr for Instrument {
             "quadrupole"
             | "esilcesiqq"
             | "esilcappiqq"
+            | "lcesiqq"
             | "esiqqq"
             | "lcesiqqq"
             | "esiflowinjectionqqqms"

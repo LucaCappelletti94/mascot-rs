@@ -1972,6 +1972,25 @@ fn test_gems_a10_builder_selects_top_40_variant() {
 }
 
 #[test]
+fn test_gems_a10_builder_selects_top_20_variant() {
+    let builder = MGFVec::<f64>::gems_a10_top_20_peaks();
+
+    assert_eq!(builder.selected_variant(), GemsA10Variant::Top20Peaks);
+    assert_eq!(builder.record_id(), GEMS_A10_TOP_20_ZENODO_RECORD_ID);
+    assert_eq!(builder.doi(), GEMS_A10_TOP_20_ZENODO_DOI);
+    assert_eq!(GEMS_A10_TOP_20_ZENODO_RECORD_ID, 20_027_219);
+    assert_eq!(GEMS_A10_TOP_20_ZENODO_DOI, "10.5281/zenodo.20027219");
+    assert_eq!(
+        builder.selected_file_keys().len(),
+        usize::from(GEMS_A10_MGF_PART_COUNT)
+    );
+    assert_eq!(
+        builder.selected_file_keys().last().map(String::as_str),
+        Some("GeMS_A10.mgf.part-00023.mgf.zst")
+    );
+}
+
+#[test]
 fn test_gems_a10_builder_loads_existing_downloaded_file() -> Result<()> {
     let target_directory =
         std::env::temp_dir().join(format!("mascot-rs-gems-a10-test-{}", std::process::id()));

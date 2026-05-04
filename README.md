@@ -380,11 +380,13 @@ assert_eq!(
 
 The GeMS-A10 helper is exposed through `MGFVec::<P>::gems_a10()`.
 By default it targets Zenodo record `19980668` and the 24 compressed MGF part
-files from the top-100 peaks conversion. The top-60 and top-40 peaks
-conversions are available with `MGFVec::<P>::gems_a10_top_60_peaks()`
-or `MGFVec::<P>::gems_a10_top_40_peaks()`, and with `.top_60_peaks()`
-or `.top_40_peaks()` on the builder. They target Zenodo records `20001888`
-and `20002962`, respectively. Uncached downloads use `zenodo-rs` and should be
+files from the top-100 peaks conversion. The top-60, top-40, and top-20 peaks
+conversions are available with `MGFVec::<P>::gems_a10_top_60_peaks()`,
+`MGFVec::<P>::gems_a10_top_40_peaks()`, or
+`MGFVec::<P>::gems_a10_top_20_peaks()`, and with `.top_60_peaks()`,
+`.top_40_peaks()`, or `.top_20_peaks()` on the builder. They target Zenodo
+records `20001888`, `20002962`, and `20027219`, respectively. Uncached
+downloads use `zenodo-rs` and should be
 awaited inside a Tokio runtime. The example below writes a small cached file
 first, so the builder downloads from the local cache, then loads that local file
 without performing a network request.

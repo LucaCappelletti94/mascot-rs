@@ -54,6 +54,10 @@ pub mod prelude {
     #[cfg(feature = "std")]
     pub use crate::gems_a10::GEMS_A10_TOP_100_ZENODO_RECORD_ID;
     #[cfg(feature = "std")]
+    pub use crate::gems_a10::GEMS_A10_TOP_20_ZENODO_DOI;
+    #[cfg(feature = "std")]
+    pub use crate::gems_a10::GEMS_A10_TOP_20_ZENODO_RECORD_ID;
+    #[cfg(feature = "std")]
     pub use crate::gems_a10::GEMS_A10_TOP_40_ZENODO_DOI;
     #[cfg(feature = "std")]
     pub use crate::gems_a10::GEMS_A10_TOP_40_ZENODO_RECORD_ID;

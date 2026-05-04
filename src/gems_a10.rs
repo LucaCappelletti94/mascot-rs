@@ -34,6 +34,12 @@ pub const GEMS_A10_TOP_40_ZENODO_RECORD_ID: u64 = 20_002_962;
 /// DOI for the top-40 peaks `GeMS-A10` MGF dataset.
 pub const GEMS_A10_TOP_40_ZENODO_DOI: &str = "10.5281/zenodo.20002962";
 
+/// Zenodo record ID for the top-20 peaks `GeMS-A10` MGF dataset.
+pub const GEMS_A10_TOP_20_ZENODO_RECORD_ID: u64 = 20_027_219;
+
+/// DOI for the top-20 peaks `GeMS-A10` MGF dataset.
+pub const GEMS_A10_TOP_20_ZENODO_DOI: &str = "10.5281/zenodo.20027219";
+
 /// Number of compressed MGF part files in the converted `GeMS-A10` dataset.
 pub const GEMS_A10_MGF_PART_COUNT: u8 = 24;
 
@@ -50,6 +56,8 @@ pub enum GemsA10Variant {
     Top60Peaks,
     /// Smaller conversion capped to the top 40 fragment peaks per spectrum.
     Top40Peaks,
+    /// Smaller conversion capped to the top 20 fragment peaks per spectrum.
+    Top20Peaks,
 }
 
 impl GemsA10Variant {
@@ -60,6 +68,7 @@ impl GemsA10Variant {
             Self::Top100Peaks => GEMS_A10_TOP_100_ZENODO_RECORD_ID,
             Self::Top60Peaks => GEMS_A10_TOP_60_ZENODO_RECORD_ID,
             Self::Top40Peaks => GEMS_A10_TOP_40_ZENODO_RECORD_ID,
+            Self::Top20Peaks => GEMS_A10_TOP_20_ZENODO_RECORD_ID,
         }
     }
 
@@ -70,6 +79,7 @@ impl GemsA10Variant {
             Self::Top100Peaks => GEMS_A10_TOP_100_ZENODO_DOI,
             Self::Top60Peaks => GEMS_A10_TOP_60_ZENODO_DOI,
             Self::Top40Peaks => GEMS_A10_TOP_40_ZENODO_DOI,
+            Self::Top20Peaks => GEMS_A10_TOP_20_ZENODO_DOI,
         }
     }
 
@@ -78,6 +88,7 @@ impl GemsA10Variant {
             Self::Top100Peaks => "mascot-rs-gems-a10",
             Self::Top60Peaks => "mascot-rs-gems-a10-top-60-peaks",
             Self::Top40Peaks => "mascot-rs-gems-a10-top-40-peaks",
+            Self::Top20Peaks => "mascot-rs-gems-a10-top-20-peaks",
         };
         std::env::temp_dir().join(directory)
     }
@@ -169,6 +180,12 @@ impl<P: SpectrumFloat> GemsA10Builder<P> {
     #[must_use]
     pub fn top_40_peaks(self) -> Self {
         self.variant(GemsA10Variant::Top40Peaks)
+    }
+
+    /// Selects the top-20 peaks conversion.
+    #[must_use]
+    pub fn top_20_peaks(self) -> Self {
+        self.variant(GemsA10Variant::Top20Peaks)
     }
 
     /// Returns the selected published `GeMS-A10` conversion variant.
@@ -679,6 +696,23 @@ mod tests {
             .paths()
             .first()
             .is_some_and(|path| path.display().to_string().contains("top-40-peaks")));
+        assert_eq!(
+            builder.selected_file_keys().last().map(String::as_str),
+            Some("GeMS_A10.mgf.part-00023.mgf.zst")
+        );
+    }
+
+    #[test]
+    fn selects_top_20_peaks_variant() {
+        let builder = GemsA10Builder::<f64>::default().top_20_peaks();
+
+        assert_eq!(builder.selected_variant(), GemsA10Variant::Top20Peaks);
+        assert_eq!(builder.record_id(), GEMS_A10_TOP_20_ZENODO_RECORD_ID);
+        assert_eq!(builder.doi(), GEMS_A10_TOP_20_ZENODO_DOI);
+        assert!(builder
+            .paths()
+            .first()
+            .is_some_and(|path| path.display().to_string().contains("top-20-peaks")));
         assert_eq!(
             builder.selected_file_keys().last().map(String::as_str),
             Some("GeMS_A10.mgf.part-00023.mgf.zst")

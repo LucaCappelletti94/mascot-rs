@@ -1,5 +1,4 @@
 use alloc::{string::ToString, vec::Vec};
-use core::{fmt::Debug, ops::Add, str::FromStr};
 
 use crate::mascot_generic_format::MascotGenericFormat;
 use crate::mascot_generic_format_metadata_builder::MascotGenericFormatMetadataBuilder;
@@ -11,17 +10,17 @@ const INTENSITY_FIELD: &str = "fragment intensity";
 
 #[derive(Debug, Clone)]
 /// A builder for [`MascotGenericFormat`].
-pub struct MascotGenericFormatBuilder<I, P: SpectrumFloat = f64> {
-    metadata_builder: MascotGenericFormatMetadataBuilder<I, P>,
+pub struct MascotGenericFormatBuilder<P: SpectrumFloat = f64> {
+    metadata_builder: MascotGenericFormatMetadataBuilder<P>,
     peaks: Vec<(P, P)>,
     peaks_are_strictly_increasing: bool,
     section_open: bool,
 }
 
-impl<I, P: SpectrumFloat> Default for MascotGenericFormatBuilder<I, P> {
+impl<P: SpectrumFloat> Default for MascotGenericFormatBuilder<P> {
     fn default() -> Self {
         Self {
-            metadata_builder: MascotGenericFormatMetadataBuilder::default(),
+            metadata_builder: MascotGenericFormatMetadataBuilder::<P>::default(),
             peaks: Vec::new(),
             peaks_are_strictly_increasing: true,
             section_open: false,
@@ -29,22 +28,19 @@ impl<I, P: SpectrumFloat> Default for MascotGenericFormatBuilder<I, P> {
     }
 }
 
-impl<I, P: SpectrumFloat> MascotGenericFormatBuilder<I, P> {
+impl<P: SpectrumFloat> MascotGenericFormatBuilder<P> {
     pub(super) const fn section_open(&self) -> bool {
         self.section_open
     }
 }
 
-impl<I, P: SpectrumFloat> MascotGenericFormatBuilder<I, P>
-where
-    I: Copy + Eq + Debug + Add<Output = I> + FromStr + From<usize>,
-{
+impl<P: SpectrumFloat> MascotGenericFormatBuilder<P> {
     /// Builds a [`MascotGenericFormat`] from the given data.
     ///
     /// # Errors
     /// Returns an error if the parsed metadata or data blocks are incomplete or
     /// invalid.
-    pub(super) fn build(self) -> Result<MascotGenericFormat<I, P>> {
+    pub(super) fn build(self) -> Result<MascotGenericFormat<P>> {
         let (metadata, precursor_mz) = self.metadata_builder.build()?;
 
         MascotGenericFormat::from_parsed_peaks(
@@ -56,10 +52,7 @@ where
     }
 }
 
-impl<I, P: SpectrumFloat> MascotGenericFormatBuilder<I, P>
-where
-    I: Copy + Eq + Debug + Add<Output = I> + FromStr + From<usize>,
-{
+impl<P: SpectrumFloat> MascotGenericFormatBuilder<P> {
     fn digest_peak_line(&mut self, line: &str) -> Result<()> {
         let mut split = line.split_whitespace();
 
@@ -86,7 +79,7 @@ where
             return Ok(());
         }
 
-        MascotGenericFormat::<I, P>::push_peak_tracking_order(
+        MascotGenericFormat::<P>::push_peak_tracking_order(
             &mut self.peaks,
             &mut self.peaks_are_strictly_increasing,
             mass_divided_by_charge_ratio,
@@ -119,10 +112,10 @@ where
             self.section_open = true;
         } else if line == "END IONS" {
             self.section_open = false;
-        } else if MascotGenericFormatMetadataBuilder::<I, P>::can_parse_line(line) {
+        } else if MascotGenericFormatMetadataBuilder::<P>::can_parse_line(line) {
             self.metadata_builder.digest_line(line)?;
         } else if self.section_open
-            && MascotGenericFormatMetadataBuilder::<I, P>::can_parse_arbitrary_metadata_line(line)
+            && MascotGenericFormatMetadataBuilder::<P>::can_parse_arbitrary_metadata_line(line)
         {
             self.metadata_builder.digest_arbitrary_metadata_line(line)?;
         } else if self.section_open {
@@ -143,7 +136,7 @@ mod tests {
 
     #[test]
     fn digests_ion_section_boundaries_and_rejects_unknown_lines() -> Result<()> {
-        let mut mascot_generic_format_builder = MascotGenericFormatBuilder::<usize>::default();
+        let mut mascot_generic_format_builder = MascotGenericFormatBuilder::<f64>::default();
 
         mascot_generic_format_builder.digest_line("BEGIN IONS")?;
         mascot_generic_format_builder.digest_line("END IONS")?;
@@ -156,13 +149,13 @@ mod tests {
     #[test]
     fn rejects_invalid_peak_lines() -> Result<()> {
         for line in [" ", "100.0", "not-a-number 1.0", "100.0 not-a-number"] {
-            let mut builder = MascotGenericFormatBuilder::<usize>::default();
+            let mut builder = MascotGenericFormatBuilder::<f64>::default();
             builder.digest_line("BEGIN IONS")?;
             assert!(builder.digest_line(line).is_err());
         }
 
         for line in ["NaN 1.0", "0.0 1.0", "100.0 NaN", "100.0 -1.0"] {
-            let mut builder = MascotGenericFormatBuilder::<usize>::default();
+            let mut builder = MascotGenericFormatBuilder::<f64>::default();
             builder.digest_line("BEGIN IONS")?;
             builder.digest_line("PEPMASS=500.0")?;
             builder.digest_line("MSLEVEL=2")?;
@@ -181,7 +174,7 @@ mod tests {
 
     #[test]
     fn filters_zero_intensity_peak_lines() -> Result<()> {
-        let mut builder = MascotGenericFormatBuilder::<usize>::default();
+        let mut builder = MascotGenericFormatBuilder::<f64>::default();
         builder.digest_line("BEGIN IONS")?;
         builder.digest_line("PEPMASS=500.0")?;
         builder.digest_line("MSLEVEL=2")?;

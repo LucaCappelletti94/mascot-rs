@@ -107,15 +107,43 @@ pub enum MascotError {
         /// Underlying molecular formula parser error.
         error: molecular_formulas::errors::ParserError,
     },
+    /// A parsed molecular formula mixture could not be merged for validation.
+    #[error(
+        "FORMULA/SMILES validation could not merge mixture components for the {formula_source} formula {formula}: {source}"
+    )]
+    FormulaMixtureMerge {
+        /// Side of the comparison whose mixtures could not be merged.
+        formula_source: &'static str,
+        /// Formula whose mixture components could not be merged.
+        formula: String,
+        /// Underlying molecular formula count error.
+        source: molecular_formulas::errors::CountError,
+    },
+    /// An isotope-insensitive atom-count vector could not be computed.
+    #[error(
+        "FORMULA/SMILES validation could not compute the isotope-insensitive atom-count vector for the {formula_source} formula {formula}: {source}"
+    )]
+    FormulaAtomCountVector {
+        /// Side of the comparison whose atom-count vector could not be computed.
+        formula_source: &'static str,
+        /// Formula whose atom-count vector could not be computed.
+        formula: String,
+        /// Underlying molecular formula count error.
+        source: molecular_formulas::errors::CountError,
+    },
     /// Parsed `FORMULA` metadata does not match the molecular formula from `SMILES`.
     #[error(
-        "FORMULA metadata {formula} does not match the SMILES-derived formula {smiles_formula}"
+        "FORMULA/SMILES validation failed: the MGF FORMULA header is {formula}, which merges to {merged_formula}; the SMILES-derived formula is {smiles_formula}, which merges to {merged_smiles_formula}; their isotope-insensitive atom-count vectors are different"
     )]
     FormulaSmilesMismatch {
         /// Formula reported by the MGF header.
         formula: String,
+        /// Header formula after merging mixture components.
+        merged_formula: String,
         /// Formula calculated from the parsed SMILES.
         smiles_formula: String,
+        /// SMILES-derived formula after merging mixture components.
+        merged_smiles_formula: String,
     },
     /// A line provided a non-finite floating-point value.
     #[error("line \"{line}\" contains a non-finite {field}")]
@@ -173,12 +201,6 @@ pub enum MascotError {
         /// Reason the charge is invalid.
         reason: &'static str,
     },
-    /// `SCANS` does not match the feature id.
-    #[error("SCANS is not -1 or equal to FEATURE_ID in line \"{line}\"")]
-    ScanFeatureIdMismatch {
-        /// Original input line.
-        line: String,
-    },
     /// Merged scan statistics are internally inconsistent.
     #[error("merged scan statistics do not add up to the total scan count")]
     MergedScanStatisticsMismatch,
@@ -191,7 +213,7 @@ pub enum MascotError {
         intensity_len: usize,
     },
     /// A peak vector is empty.
-    #[error("peak vectors must not be empty")]
+    #[error("the MGF record contains no usable peaks after parsing and zero-intensity filtering")]
     EmptyPeakVectors,
     /// A single-record parser received zero or multiple records.
     #[error("expected exactly one MGF record, found {found}")]
@@ -206,7 +228,9 @@ pub enum MascotError {
     #[error("could not calculate SPLASH for metadata validation: {0}")]
     SplashValidation(#[from] SplashError),
     /// A `SPLASH` metadata value does not match the parsed peaks.
-    #[error("SPLASH metadata {observed} does not match the calculated SPLASH {expected}")]
+    #[error(
+        "SPLASH validation failed: the MGF header reports {observed}, but the SPLASH calculated from the parsed peaks is {expected}"
+    )]
     SplashMismatch {
         /// SPLASH reported by the MGF header.
         observed: String,

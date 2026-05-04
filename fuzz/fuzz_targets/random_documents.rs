@@ -5,5 +5,5 @@ use mascot_rs::prelude::*;
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|document: &str| {
-    let _ = document.parse::<MGFVec<usize, f32>>();
+    let _ = document.parse::<MGFVec<f32>>();
 });

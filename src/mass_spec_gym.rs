@@ -117,14 +117,13 @@ impl<P: SpectrumFloat> MassSpecGymBuilder<P> {
         })
     }
 
-    fn load_path(path: &Path) -> Result<(MGFVec<usize, P>, usize)> {
+    fn load_path(path: &Path) -> Result<(MGFVec<P>, usize)> {
         let file = std::fs::File::open(path).map_err(|source| MascotError::Io {
             path: path.display().to_string(),
             source,
         })?;
         let source = MassSpecGymLineSource::new(MGFReader::new(BufReader::new(file)));
-        let mut iterator =
-            MGFIter::<usize, P, _>::from_line_source(source).skipping_invalid_records();
+        let mut iterator = MGFIter::<P, _>::from_line_source(source).skipping_invalid_records();
         let mut records = Vec::new();
 
         while let Some(record) = iterator.next().transpose()? {
@@ -185,7 +184,7 @@ impl MassSpecGymDownload {
 #[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
 #[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
 pub struct MassSpecGymLoad<P: SpectrumFloat = f64> {
-    spectra: MGFVec<usize, P>,
+    spectra: MGFVec<P>,
     skipped_records: usize,
     path: PathBuf,
     bytes: u64,
@@ -194,13 +193,13 @@ pub struct MassSpecGymLoad<P: SpectrumFloat = f64> {
 impl<P: SpectrumFloat> MassSpecGymLoad<P> {
     /// Returns the loaded spectra.
     #[must_use]
-    pub const fn spectra(&self) -> &MGFVec<usize, P> {
+    pub const fn spectra(&self) -> &MGFVec<P> {
         &self.spectra
     }
 
     /// Consumes the load result and returns the loaded spectra.
     #[must_use]
-    pub fn into_spectra(self) -> MGFVec<usize, P> {
+    pub fn into_spectra(self) -> MGFVec<P> {
         self.spectra
     }
 
@@ -223,8 +222,8 @@ impl<P: SpectrumFloat> MassSpecGymLoad<P> {
     }
 }
 
-impl<P: SpectrumFloat> AsRef<MGFVec<usize, P>> for MassSpecGymLoad<P> {
-    fn as_ref(&self) -> &MGFVec<usize, P> {
+impl<P: SpectrumFloat> AsRef<MGFVec<P>> for MassSpecGymLoad<P> {
+    fn as_ref(&self) -> &MGFVec<P> {
         self.spectra()
     }
 }
@@ -279,8 +278,9 @@ impl<S> MassSpecGymLineSource<S> {
         } else if line.starts_with("IONMODE=") {
             self.saw_ion_mode = true;
         } else if let Some(identifier) = line.strip_prefix("IDENTIFIER=") {
-            if let Some(feature_id) = Self::feature_id_from_identifier(identifier) {
-                self.queued.push_back(format!("FEATURE_ID={feature_id}"));
+            let identifier = identifier.trim();
+            if !identifier.is_empty() {
+                self.queued.push_back(format!("FEATURE_ID={identifier}"));
             }
         } else if let Some(precursor_mz) = line.strip_prefix("PRECURSOR_MZ=") {
             self.queued.push_back(format!("PEPMASS={precursor_mz}"));
@@ -323,12 +323,6 @@ impl<S> MassSpecGymLineSource<S> {
             self.queued.push_back(format!("IONMODE={ion_mode}"));
             self.saw_ion_mode = true;
         }
-    }
-
-    fn feature_id_from_identifier(identifier: &str) -> Option<usize> {
-        identifier
-            .strip_prefix("MassSpecGymID")
-            .and_then(|value| value.parse::<usize>().ok())
     }
 
     fn charge_from_adduct(adduct: &str) -> Option<i8> {

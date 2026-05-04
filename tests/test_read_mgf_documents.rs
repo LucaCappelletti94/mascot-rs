@@ -18,7 +18,7 @@ fn test_read_mgf_documents() -> std::result::Result<(), Box<dyn std::error::Erro
     }
 
     for mgf_file in mgf_files {
-        let vec: MGFVec<usize> = MGFVec::from_path(&mgf_file)?;
+        let vec: MGFVec = MGFVec::from_path(&mgf_file)?;
         assert!(!vec.is_empty());
     }
 
@@ -29,7 +29,7 @@ fn test_read_mgf_documents() -> std::result::Result<(), Box<dyn std::error::Erro
 fn test_from_reader_reports_line_context() {
     let document = concat!(
         "BEGIN IONS\n",
-        "FEATURE_ID=not-a-number\n",
+        "FEATURE_ID=\n",
         "PEPMASS=500.0\n",
         "CHARGE=1\n",
         "RTINSECONDS=10.0\n",
@@ -41,7 +41,7 @@ fn test_from_reader_reports_line_context() {
     );
 
     assert!(matches!(
-        MGFVec::<usize>::from_reader(std::io::Cursor::new(document)),
+        MGFVec::<f64>::from_reader(std::io::Cursor::new(document)),
         Err(MascotError::InputLine { line_number: 2, .. })
     ));
 }
@@ -60,7 +60,7 @@ fn test_from_reader_rejects_empty_records_with_line_context() {
     );
 
     assert!(matches!(
-        MGFVec::<usize>::from_reader(std::io::Cursor::new(document)),
+        MGFVec::<f64>::from_reader(std::io::Cursor::new(document)),
         Err(MascotError::InputLine { line_number: 8, .. })
     ));
 }
@@ -80,7 +80,7 @@ fn test_from_reader_filters_zero_intensity_peak_lines() -> Result<()> {
         "END IONS\n",
     );
 
-    let records = MGFVec::<usize>::from_reader(std::io::Cursor::new(document))?;
+    let records = MGFVec::<f64>::from_reader(std::io::Cursor::new(document))?;
 
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].len(), 1);
@@ -109,7 +109,7 @@ fn test_from_reader_reports_io_errors() {
     }
 
     assert!(matches!(
-        MGFVec::<usize>::from_reader(FailingReader),
+        MGFVec::<f64>::from_reader(FailingReader),
         Err(MascotError::InputIo { .. })
     ));
 }
@@ -137,7 +137,7 @@ fn test_mgf_iter_reads_records_one_by_one() -> Result<()> {
         "SCANS=2\n",
         "END IONS\n",
     );
-    let mut iter = MGFVec::<usize, f32>::iter_from_reader(std::io::Cursor::new(document));
+    let mut iter = MGFVec::<f32>::iter_from_reader(std::io::Cursor::new(document));
 
     let first = iter
         .next()
@@ -148,9 +148,9 @@ fn test_mgf_iter_reads_records_one_by_one() -> Result<()> {
         .transpose()?
         .ok_or(MascotError::SingleRecordExpected { found: 1 })?;
 
-    assert_eq!(first.feature_id(), Some(1));
+    assert_eq!(first.feature_id(), Some("1"));
     assert_eq!(first.precursor_mz().to_bits(), 500.0_f32.to_bits());
-    assert_eq!(second.feature_id(), Some(2));
+    assert_eq!(second.feature_id(), Some("2"));
     assert_eq!(second.precursor_mz().to_bits(), 600.0_f32.to_bits());
     assert!(iter.next().is_none());
 
@@ -168,7 +168,7 @@ fn test_mgf_iter_reads_borrowed_str_without_std_reader() -> Result<()> {
         "SCANS=-1\n",
         "END IONS\n",
     );
-    let mut iter = MGFVec::<usize, f32>::iter_from_str(document);
+    let mut iter = MGFVec::<f32>::iter_from_str(document);
 
     let record = iter
         .next()
@@ -186,7 +186,7 @@ fn test_mgf_iter_reads_borrowed_str_without_std_reader() -> Result<()> {
 fn test_mgf_iter_reports_line_context_and_stops() {
     let document = concat!(
         "BEGIN IONS\n",
-        "FEATURE_ID=not-a-number\n",
+        "FEATURE_ID=\n",
         "PEPMASS=500.0\n",
         "CHARGE=1\n",
         "RTINSECONDS=10.0\n",
@@ -195,7 +195,7 @@ fn test_mgf_iter_reports_line_context_and_stops() {
         "SCANS=1\n",
         "END IONS\n",
     );
-    let mut iter = MGFVec::<usize>::iter_from_reader(std::io::Cursor::new(document));
+    let mut iter = MGFVec::<f64>::iter_from_reader(std::io::Cursor::new(document));
 
     assert!(matches!(
         iter.next(),
@@ -228,13 +228,13 @@ fn test_mgf_iter_from_path_reads_compressed_records(
     std::io::Write::write_all(&mut encoder, document.as_bytes())?;
     encoder.finish()?;
 
-    let mut iter = MGFVec::<usize, f32>::iter_from_path(&path)?;
+    let mut iter = MGFVec::<f32>::iter_from_path(&path)?;
     let record = iter
         .next()
         .transpose()?
         .ok_or_else(|| std::io::Error::other("missing MGF record"))?;
 
-    assert_eq!(record.feature_id(), Some(3));
+    assert_eq!(record.feature_id(), Some("3"));
     assert_eq!(record.precursor_mz().to_bits(), 700.0_f32.to_bits());
     assert!(iter.next().is_none());
     drop(iter);
@@ -258,7 +258,7 @@ fn test_from_reader_wraps_build_errors_with_line_context() {
     );
 
     assert!(matches!(
-        MGFVec::<usize>::from_reader(std::io::Cursor::new(document)),
+        MGFVec::<f64>::from_reader(std::io::Cursor::new(document)),
         Err(MascotError::InputLine { line_number: 9, .. })
     ));
 }
@@ -267,7 +267,7 @@ fn test_from_reader_wraps_build_errors_with_line_context() {
 fn test_from_str_reports_parse_and_build_line_context() {
     let invalid_field = concat!(
         "BEGIN IONS\n",
-        "FEATURE_ID=not-a-number\n",
+        "FEATURE_ID=\n",
         "PEPMASS=500.0\n",
         "CHARGE=1\n",
         "RTINSECONDS=10.0\n",
@@ -277,7 +277,7 @@ fn test_from_str_reports_parse_and_build_line_context() {
         "END IONS\n",
     );
     assert!(matches!(
-        invalid_field.parse::<MGFVec<usize>>(),
+        invalid_field.parse::<MGFVec>(),
         Err(MascotError::InputLine { line_number: 2, .. })
     ));
 
@@ -293,7 +293,7 @@ fn test_from_str_reports_parse_and_build_line_context() {
         "END IONS\n",
     );
     assert!(matches!(
-        build_error.parse::<MGFVec<usize>>(),
+        build_error.parse::<MGFVec>(),
         Err(MascotError::InputLine { line_number: 9, .. })
     ));
 }
@@ -312,7 +312,7 @@ fn test_from_str_rejects_empty_records_with_line_context() {
     );
 
     assert!(matches!(
-        document.parse::<MGFVec<usize>>(),
+        document.parse::<MGFVec>(),
         Err(MascotError::InputLine { line_number: 8, .. })
     ));
 }
@@ -341,11 +341,11 @@ fn test_from_path_reads_zstd_compressed_mgf() -> std::result::Result<(), Box<dyn
     std::io::Write::write_all(&mut encoder, document.as_bytes())?;
     encoder.finish()?;
 
-    let mgf: MGFVec<usize, f32> = MGFVec::from_path(&path)?;
+    let mgf: MGFVec<f32> = MGFVec::from_path(&path)?;
 
     std::fs::remove_dir_all(&target_directory)?;
     assert_eq!(mgf.len(), 1);
-    assert_eq!(mgf[0].feature_id(), Some(1));
+    assert_eq!(mgf[0].feature_id(), Some("1"));
     assert_eq!(mgf[0].precursor_mz().to_bits(), 500.0_f32.to_bits());
 
     Ok(())
@@ -357,7 +357,7 @@ fn test_from_path_reports_open_and_decompression_errors(
     let missing_path =
         std::env::temp_dir().join(format!("mascot-rs-missing-{}.mgf", std::process::id()));
     assert!(matches!(
-        MGFVec::<usize>::from_path(&missing_path),
+        MGFVec::<f64>::from_path(&missing_path),
         Err(MascotError::Io { .. })
     ));
 
@@ -370,7 +370,7 @@ fn test_from_path_reports_open_and_decompression_errors(
     let path = target_directory.join("corrupt.mgf.zst");
     std::fs::write(&path, b"not a zstd frame")?;
 
-    let result = MGFVec::<usize>::from_path(&path);
+    let result = MGFVec::<f64>::from_path(&path);
     std::fs::remove_dir_all(&target_directory)?;
     assert!(matches!(
         result,
@@ -404,11 +404,11 @@ fn test_from_path_reads_gzip_compressed_mgf() -> std::result::Result<(), Box<dyn
     std::io::Write::write_all(&mut encoder, document.as_bytes())?;
     encoder.finish()?;
 
-    let mgf: MGFVec<usize, f32> = MGFVec::from_path(&path)?;
+    let mgf: MGFVec<f32> = MGFVec::from_path(&path)?;
 
     std::fs::remove_dir_all(&target_directory)?;
     assert_eq!(mgf.len(), 1);
-    assert_eq!(mgf[0].feature_id(), Some(2));
+    assert_eq!(mgf[0].feature_id(), Some("2"));
     assert_eq!(mgf[0].precursor_mz().to_bits(), 600.0_f32.to_bits());
 
     Ok(())
@@ -443,20 +443,21 @@ IONMODE=Negative
 SCANS=-1
 END IONS
 ";
-    let mgf: MGFVec<usize> = document.parse()?;
+    let mgf: MGFVec = document.parse()?;
     let mut output = Vec::new();
 
     mgf.write_to(&mut output)?;
 
     let serialized = std::str::from_utf8(&output)?;
-    let reparsed: MGFVec<usize> = serialized.parse()?;
+    let reparsed: MGFVec = serialized.parse()?;
 
     assert!(serialized.contains("SOURCE_INSTRUMENT=Orbitrap"));
     assert!(serialized.contains("NAME=Example spectrum"));
     assert!(serialized.contains("SPECTYPE=CORRELATED MS"));
     assert!(serialized.contains("SCANS=-1"));
     assert_eq!(reparsed.len(), 2);
-    assert_eq!(reparsed[0].feature_id(), Some(1));
+    assert_eq!(reparsed[0].feature_id(), Some("1"));
+    assert_eq!(reparsed[0].metadata().scans(), Some("1"));
     assert_eq!(reparsed[0].metadata().filename(), Some("sample.mzML"));
     assert_eq!(
         reparsed[0]
@@ -511,16 +512,17 @@ MSLEVEL=2
 SCANS=7
 END IONS
 ";
-    let record: MascotGenericFormat<usize, f32> = document.parse()?;
+    let record: MascotGenericFormat<f32> = document.parse()?;
     let mut output = Vec::new();
 
     record.write_to(&mut output)?;
 
     let serialized = std::str::from_utf8(&output)?;
-    let reparsed: MascotGenericFormat<usize, f32> = serialized.parse()?;
+    let reparsed: MascotGenericFormat<f32> = serialized.parse()?;
 
     assert_eq!(serialized.matches("BEGIN IONS").count(), 1);
-    assert_eq!(reparsed.feature_id(), Some(7));
+    assert_eq!(reparsed.feature_id(), Some("7"));
+    assert_eq!(reparsed.metadata().scans(), Some("7"));
     assert_eq!(reparsed.precursor_mz().to_bits(), 700.0_f32.to_bits());
     assert_eq!(reparsed.mz_nth(0).to_bits(), 100.0_f32.to_bits());
 
@@ -547,22 +549,22 @@ MSLEVEL=2
 SCANS=3
 END IONS
 ";
-    let mgf: MGFVec<usize, f32> = document.parse()?;
-    let record: MascotGenericFormat<usize, f32> = document.parse()?;
+    let mgf: MGFVec<f32> = document.parse()?;
+    let record: MascotGenericFormat<f32> = document.parse()?;
 
     mgf.to_path(&zstd_path)?;
     record.to_path(&gzip_path)?;
 
-    let read_zstd: MGFVec<usize, f32> = MGFVec::from_path(&zstd_path)?;
-    let read_gzip: MGFVec<usize, f32> = MGFVec::from_path(&gzip_path)?;
+    let read_zstd: MGFVec<f32> = MGFVec::from_path(&zstd_path)?;
+    let read_gzip: MGFVec<f32> = MGFVec::from_path(&gzip_path)?;
 
     std::fs::remove_dir_all(&target_directory)?;
 
     assert_eq!(read_zstd.len(), 1);
-    assert_eq!(read_zstd[0].feature_id(), Some(3));
+    assert_eq!(read_zstd[0].feature_id(), Some("3"));
     assert_eq!(read_zstd[0].precursor_mz().to_bits(), 500.0_f32.to_bits());
     assert_eq!(read_gzip.len(), 1);
-    assert_eq!(read_gzip[0].feature_id(), Some(3));
+    assert_eq!(read_gzip[0].feature_id(), Some("3"));
 
     Ok(())
 }
@@ -590,7 +592,7 @@ MSLEVEL=2
 SCANS=1
 END IONS
 ";
-    let mgf: MGFVec<usize> = document.parse()?;
+    let mgf: MGFVec = document.parse()?;
 
     assert!(matches!(
         mgf.write_to(FailingWriter),
@@ -616,7 +618,7 @@ fn test_unsorted_duplicate_peaks_are_normalized() -> Result<()> {
         "END IONS",
     ];
 
-    let mgf: MGFVec<usize> = MGFVec::try_from_iter(lines)?;
+    let mgf: MGFVec = MGFVec::try_from_iter(lines)?;
     let spectrum = &mgf[0];
 
     let mz_bits = spectrum.mz().map(f64::to_bits).collect::<Vec<_>>();
@@ -642,7 +644,7 @@ fn test_ms_level_is_u8_not_two_value_enum() -> Result<()> {
         "END IONS",
     ];
 
-    let mgf: MGFVec<usize> = MGFVec::try_from_iter(lines)?;
+    let mgf: MGFVec = MGFVec::try_from_iter(lines)?;
 
     assert_eq!(mgf[0].level(), 3);
     assert_eq!(mgf[0].metadata().level(), 3);
@@ -673,14 +675,14 @@ fn test_duplicate_feature_ids_are_distinct_ion_blocks() -> Result<()> {
         "END IONS",
     ];
 
-    let mgf: MGFVec<usize> = MGFVec::try_from_iter(lines)?;
-    let records: &[MascotGenericFormat<usize>] = mgf.as_ref();
+    let mgf: MGFVec = MGFVec::try_from_iter(lines)?;
+    let records: &[MascotGenericFormat] = mgf.as_ref();
 
     assert_eq!(mgf.len(), 2);
     assert_eq!(records.len(), 2);
-    assert_eq!(mgf[0].feature_id(), Some(1));
+    assert_eq!(mgf[0].feature_id(), Some("1"));
     assert_eq!(mgf[0].level(), 1);
-    assert_eq!(mgf[1].feature_id(), Some(1));
+    assert_eq!(mgf[1].feature_id(), Some("1"));
     assert_eq!(mgf[1].level(), 2);
 
     Ok(())
@@ -710,11 +712,11 @@ fn test_mgf_vec_from_str_accepts_multiple_ion_blocks() -> Result<()> {
         "END IONS\n",
     );
 
-    let mgf: MGFVec<usize, f32> = document.parse()?;
+    let mgf: MGFVec<f32> = document.parse()?;
 
     assert_eq!(mgf.len(), 2);
-    assert_eq!(mgf[0].feature_id(), Some(1));
-    assert_eq!(mgf[1].feature_id(), Some(2));
+    assert_eq!(mgf[0].feature_id(), Some("1"));
+    assert_eq!(mgf[1].feature_id(), Some("2"));
     assert_eq!(mgf[1].precursor_mz().to_bits(), 600.0_f32.to_bits());
 
     Ok(())
@@ -743,25 +745,25 @@ fn test_mgf_vec_iteration_helpers_are_standard_collection_interfaces() -> Result
         "SCANS=2\n",
         "END IONS\n",
     );
-    let mgf: MGFVec<usize> = document.parse()?;
+    let mgf: MGFVec = document.parse()?;
 
     let iter_ids = mgf
         .iter()
-        .map(MascotGenericFormat::feature_id)
+        .map(|record| record.feature_id().map(ToString::to_string))
         .collect::<Vec<_>>();
     let borrowed_iter_ids = (&mgf)
         .into_iter()
-        .map(MascotGenericFormat::feature_id)
+        .map(|record| record.feature_id().map(ToString::to_string))
         .collect::<Vec<_>>();
-    let filtered: MGFVec<usize> = mgf
+    let filtered: MGFVec = mgf
         .into_iter()
-        .filter(|record| record.feature_id() == Some(2))
+        .filter(|record| record.feature_id() == Some("2"))
         .collect();
 
-    assert_eq!(iter_ids, vec![Some(1), Some(2)]);
+    assert_eq!(iter_ids, vec![Some("1".to_string()), Some("2".to_string())]);
     assert_eq!(borrowed_iter_ids, iter_ids);
     assert_eq!(filtered.len(), 1);
-    assert_eq!(filtered[0].feature_id(), Some(2));
+    assert_eq!(filtered[0].feature_id(), Some("2"));
 
     Ok(())
 }
@@ -800,15 +802,15 @@ fn test_mgf_from_str_requires_exactly_one_ion_block() -> Result<()> {
         "END IONS\n",
     );
 
-    let record: MascotGenericFormat<usize> = document.parse()?;
+    let record: MascotGenericFormat = document.parse()?;
 
-    assert_eq!(record.feature_id(), Some(1));
+    assert_eq!(record.feature_id(), Some("1"));
     assert!(matches!(
-        "".parse::<MascotGenericFormat<usize>>(),
+        "".parse::<MascotGenericFormat>(),
         Err(MascotError::SingleRecordExpected { found: 0 })
     ));
     assert!(matches!(
-        two_record_document.parse::<MascotGenericFormat<usize>>(),
+        two_record_document.parse::<MascotGenericFormat>(),
         Err(MascotError::SingleRecordExpected { found: 2 })
     ));
 
@@ -833,7 +835,7 @@ fn test_spectrum_access_uses_standard_traits() -> Result<()> {
         "END IONS",
     ];
 
-    let mgf: MGFVec<usize> = MGFVec::try_from_iter(lines)?;
+    let mgf: MGFVec = MGFVec::try_from_iter(lines)?;
 
     let spectrum_ref: &GenericSpectrum = mgf[0].as_ref();
     assert_eq!(spectrum_ref.len(), 2);
@@ -871,10 +873,10 @@ fn test_spectrum_access_uses_standard_traits() -> Result<()> {
     assert_eq!(Spectra::len(&mgf), 1);
     assert_eq!(
         mgf.spectra().next().map(MascotGenericFormat::feature_id),
-        Some(Some(1))
+        Some(Some("1"))
     );
 
-    let metadata = MascotGenericFormatMetadata::new(Some(1), 2, Some(10.0), 1, None)?;
+    let metadata = MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(10.0), 1, None)?;
     let record = MascotGenericFormat::new(metadata, 500.0, vec![100.0, 200.0], vec![2.0, 3.0])?;
     let spectrum: GenericSpectrum = record.into();
     assert_eq!(spectrum.len(), 2);
@@ -898,7 +900,7 @@ fn test_metadata_parses_optional_smiles() -> Result<()> {
         "END IONS",
     ];
 
-    let mgf: MGFVec<usize> = MGFVec::try_from_iter(lines)?;
+    let mgf: MGFVec = MGFVec::try_from_iter(lines)?;
 
     assert_eq!(
         mgf[0]
@@ -948,12 +950,12 @@ fn test_metadata_parses_optional_ion_mode() -> Result<()> {
         "END IONS",
     ];
 
-    let positive_mgf: MGFVec<usize> = MGFVec::try_from_iter(positive_lines)?;
-    let negative_mgf: MGFVec<usize> = MGFVec::try_from_iter(negative_lines)?;
-    let missing_mgf: MGFVec<usize> = MGFVec::try_from_iter(missing_lines)?;
-    let metadata: MascotGenericFormatMetadata<usize> =
+    let positive_mgf: MGFVec = MGFVec::try_from_iter(positive_lines)?;
+    let negative_mgf: MGFVec = MGFVec::try_from_iter(negative_lines)?;
+    let missing_mgf: MGFVec = MGFVec::try_from_iter(missing_lines)?;
+    let metadata: MascotGenericFormatMetadata =
         MascotGenericFormatMetadata::new_with_smiles_and_ion_mode(
-            Some(1),
+            Some("1".to_string()),
             2,
             None,
             1,
@@ -1024,13 +1026,13 @@ fn test_metadata_parses_optional_source_instrument() -> Result<()> {
         "END IONS",
     ];
 
-    let orbitrap_mgf: MGFVec<usize> = MGFVec::try_from_iter(liquid_chromatography_orbitrap)?;
-    let qtof_mgf: MGFVec<usize> = MGFVec::try_from_iter(normalized_qtof)?;
-    let missing_mgf: MGFVec<usize> = MGFVec::try_from_iter(missing_source_instrument)?;
-    let unknown_mgf: MGFVec<usize> = MGFVec::try_from_iter(unknown_source_instrument)?;
-    let metadata: MascotGenericFormatMetadata<usize> =
+    let orbitrap_mgf: MGFVec = MGFVec::try_from_iter(liquid_chromatography_orbitrap)?;
+    let qtof_mgf: MGFVec = MGFVec::try_from_iter(normalized_qtof)?;
+    let missing_mgf: MGFVec = MGFVec::try_from_iter(missing_source_instrument)?;
+    let unknown_mgf: MGFVec = MGFVec::try_from_iter(unknown_source_instrument)?;
+    let metadata: MascotGenericFormatMetadata =
         MascotGenericFormatMetadata::new_with_smiles_and_ion_mode(
-            Some(1),
+            Some("1".to_string()),
             2,
             None,
             1,
@@ -1063,7 +1065,7 @@ fn test_metadata_parses_optional_source_instrument() -> Result<()> {
 
 #[test]
 fn test_metadata_inserts_arbitrary_metadata() -> Result<()> {
-    let mut metadata = MascotGenericFormatMetadata::new(Some(1), 2, None, 1, None)?;
+    let mut metadata = MascotGenericFormatMetadata::new(Some("1".to_string()), 2, None, 1, None)?;
 
     let first_previous_value = metadata.insert_arbitrary_metadata("SPECTRUMID", "old-id");
     let name_previous_value = metadata.insert_arbitrary_metadata("NAME", "Example");
@@ -1099,7 +1101,7 @@ fn test_metadata_rejects_invalid_smiles() {
     ];
 
     assert!(matches!(
-        MGFVec::<usize>::try_from_iter(lines),
+        MGFVec::<f64>::try_from_iter(lines),
         Err(MascotError::InputLine {
             line_number: 7,
             source,
@@ -1110,19 +1112,20 @@ fn test_metadata_rejects_invalid_smiles() {
 
 #[test]
 fn test_record_constructor_rejects_invalid_peak_inputs() -> Result<()> {
-    let metadata = MascotGenericFormatMetadata::new(Some(1), 2, Some(10.0), 1, None)?;
+    let metadata = MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(10.0), 1, None)?;
     assert!(matches!(
-        MascotGenericFormat::<usize>::new(metadata.clone(), 500.0, vec![100.0], vec![]),
+        MascotGenericFormat::new(metadata.clone(), 500.0, vec![100.0], vec![]),
         Err(MascotError::PeakVectorLengthMismatch { .. })
     ));
     assert!(matches!(
-        MascotGenericFormat::<usize>::new(metadata, 500.0, vec![], vec![]),
+        MascotGenericFormat::new(metadata, 500.0, vec![], vec![]),
         Err(MascotError::EmptyPeakVectors)
     ));
 
-    let first_level_metadata = MascotGenericFormatMetadata::new(Some(1), 1, Some(10.0), 1, None)?;
+    let first_level_metadata =
+        MascotGenericFormatMetadata::new(Some("1".to_string()), 1, Some(10.0), 1, None)?;
     assert!(matches!(
-        MascotGenericFormat::<usize>::new(first_level_metadata, 500.0, vec![100.0], vec![1.0]),
+        MascotGenericFormat::new(first_level_metadata, 500.0, vec![100.0], vec![1.0]),
         Err(MascotError::FirstLevelPrecursorMzMismatch { .. })
     ));
 
@@ -1132,28 +1135,34 @@ fn test_record_constructor_rejects_invalid_peak_inputs() -> Result<()> {
 #[test]
 fn test_metadata_rejects_invalid_values() {
     assert!(matches!(
-        MascotGenericFormatMetadata::new(Some(1), 0, Some(10.0), 1, None),
+        MascotGenericFormatMetadata::new(Some("1".to_string()), 0, Some(10.0), 1, None),
         Err(MascotError::NonPositiveField {
             field: "fragmentation level",
             ..
         })
     ));
     assert!(matches!(
-        MascotGenericFormatMetadata::new(Some(1), 2, Some(0.0), 1, None),
+        MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(0.0), 1, None),
         Err(MascotError::NonPositiveField {
             field: "retention time",
             ..
         })
     ));
     assert!(matches!(
-        MascotGenericFormatMetadata::new(Some(1), 2, Some(f64::NAN), 1, None),
+        MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(f64::NAN), 1, None),
         Err(MascotError::NonFiniteField {
             field: "retention time",
             ..
         })
     ));
     assert!(matches!(
-        MascotGenericFormatMetadata::new(Some(1), 2, Some(10.0), 1, Some(String::new())),
+        MascotGenericFormatMetadata::new(
+            Some("1".to_string()),
+            2,
+            Some(10.0),
+            1,
+            Some(String::new()),
+        ),
         Err(MascotError::EmptyFilename)
     ));
 }
@@ -1173,16 +1182,16 @@ fn test_precision_generic_can_store_f32_spectra() -> Result<()> {
         "END IONS",
     ];
 
-    let mgf: MGFVec<usize, f32> = MGFVec::try_from_iter(lines)?;
-    let records: &[MascotGenericFormat<usize, f32>] = mgf.as_ref();
+    let mgf: MGFVec<f32> = MGFVec::try_from_iter(lines)?;
+    let records: &[MascotGenericFormat<f32>] = mgf.as_ref();
     let spectrum_ref: &GenericSpectrum<f32> = records[0].as_ref();
 
     assert_eq!(mgf[0].precursor_mz().to_bits(), 500.0_f32.to_bits());
     assert_eq!(spectrum_ref.mz_nth(0).to_bits(), 100.0_f32.to_bits());
     assert_eq!(spectrum_ref.intensity_nth(1).to_bits(), 3.0_f32.to_bits());
 
-    let metadata = MascotGenericFormatMetadata::new(Some(1), 2, Some(10.0), 1, None)?;
-    let record: MascotGenericFormat<usize, f32> =
+    let metadata = MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(10.0), 1, None)?;
+    let record: MascotGenericFormat<f32> =
         MascotGenericFormat::new(metadata, 500.0, vec![100.0, 200.0], vec![2.0, 3.0])?;
     let spectrum: GenericSpectrum<f32> = record.into();
     assert_eq!(spectrum.precursor_mz().to_bits(), 500.0_f32.to_bits());
@@ -1194,7 +1203,7 @@ fn test_precision_generic_can_store_f32_spectra() -> Result<()> {
 fn test_mgf_record_implements_allocable_spectrum_traits() -> Result<()> {
     fn assert_allocable<S: SpectrumAlloc<Precision = f32>>(_spectrum: &S) {}
 
-    let mut allocated = MascotGenericFormat::<usize, f32>::with_capacity(500.0, 2)?;
+    let mut allocated = MascotGenericFormat::<f32>::with_capacity(500.0, 2)?;
     assert_allocable(&allocated);
     assert_eq!(allocated.level(), 2);
     assert_eq!(allocated.charge(), 0);
@@ -1205,8 +1214,8 @@ fn test_mgf_record_implements_allocable_spectrum_traits() -> Result<()> {
     allocated.add_peak(200.0, 3.0)?;
     assert_eq!(allocated.len(), 2);
 
-    let metadata = MascotGenericFormatMetadata::new(Some(7), 2, Some(10.0), 1, None)?;
-    let record: MascotGenericFormat<usize, f32> = MascotGenericFormat::new(
+    let metadata = MascotGenericFormatMetadata::new(Some("7".to_string()), 2, Some(10.0), 1, None)?;
+    let record: MascotGenericFormat<f32> = MascotGenericFormat::new(
         metadata,
         500.0,
         vec![100.0, 150.0, 200.0, 250.0],
@@ -1214,7 +1223,7 @@ fn test_mgf_record_implements_allocable_spectrum_traits() -> Result<()> {
     )?;
 
     let top = record.top_k_peaks(2)?;
-    assert_eq!(top.feature_id(), Some(7));
+    assert_eq!(top.feature_id(), Some("7"));
     assert_eq!(top.len(), 2);
     assert_eq!(
         top.peaks()
@@ -1244,18 +1253,19 @@ fn test_memory_footprint_is_available_from_prelude() -> Result<()> {
         "END IONS",
     ];
 
-    let mgf: MGFVec<usize> = MGFVec::try_from_iter(lines)?;
+    let mgf: MGFVec = MGFVec::try_from_iter(lines)?;
     let size = mgf.mem_size(SizeFlags::default());
     let capacity_size = mgf.mem_size(SizeFlags::CAPACITY);
     let metadata_size = mgf[0].metadata().mem_size(SizeFlags::default());
-    let builder = MGFVec::<usize>::gnps();
+    let builder = MGFVec::<f64>::gnps();
     let builder_size = builder.mem_size(SizeFlags::default());
     let mut report = String::new();
 
     assert!(size >= std::mem::size_of_val(&mgf));
     assert!(capacity_size >= size);
     let metadata_without_smiles =
-        MascotGenericFormatMetadata::new(Some(1_usize), 2, Some(10.0), 1, None)?;
+        MascotGenericFormatMetadata::new(Some("1".to_string()), 2, Some(10.0), 1, None)?
+            .with_scans(Some("1".to_string()));
     assert!(metadata_size >= std::mem::size_of_val(mgf[0].metadata()));
     assert_eq!(
         metadata_size,
@@ -1300,10 +1310,11 @@ fn test_gnps_library_records_parse_annotation_metadata() -> Result<()> {
         "END IONS",
     ];
 
-    let mgf: MGFVec<usize> = MGFVec::try_from_iter(lines)?;
+    let mgf: MGFVec = MGFVec::try_from_iter(lines)?;
 
     assert_eq!(mgf.len(), 1);
-    assert_eq!(mgf[0].feature_id(), Some(1));
+    assert_eq!(mgf[0].feature_id(), None);
+    assert_eq!(mgf[0].metadata().scans(), Some("1"));
     assert_eq!(mgf[0].metadata().retention_time(), None);
     assert!(mgf[0].metadata().smiles().is_none());
     assert_eq!(mgf[0].metadata().ion_mode(), Some(IonMode::Positive));
@@ -1355,7 +1366,7 @@ fn test_records_without_feature_id_are_accepted() -> Result<()> {
         "END IONS",
     ];
 
-    let mgf: MGFVec<usize> = MGFVec::try_from_iter(lines)?;
+    let mgf: MGFVec = MGFVec::try_from_iter(lines)?;
 
     assert_eq!(mgf.len(), 1);
     assert_eq!(mgf[0].feature_id(), None);
@@ -1366,6 +1377,30 @@ fn test_records_without_feature_id_are_accepted() -> Result<()> {
         Some("CCMSLIB00013748121")
     );
     assert_eq!(mgf[0].len(), 2);
+
+    Ok(())
+}
+
+#[test]
+fn test_nonnumeric_feature_ids_are_preserved() -> Result<()> {
+    let lines = [
+        "BEGIN IONS",
+        "FEATURE_ID=20240502_pluskal_enamine_5008_G17_id_MSn_negative.mzML msn trees:2",
+        "PEPMASS=370.165",
+        "CHARGE=1",
+        "MSLEVEL=2",
+        "100.0 2.0",
+        "SCANS=176-199",
+        "END IONS",
+    ];
+
+    let mgf: MGFVec = MGFVec::try_from_iter(lines)?;
+
+    assert_eq!(
+        mgf[0].feature_id(),
+        Some("20240502_pluskal_enamine_5008_G17_id_MSn_negative.mzML msn trees:2")
+    );
+    assert_eq!(mgf[0].metadata().scans(), Some("176-199"));
 
     Ok(())
 }
@@ -1385,7 +1420,7 @@ fn test_empty_records_are_rejected_by_strict_parser() {
     ];
 
     assert!(matches!(
-        MGFVec::<usize>::try_from_iter(lines),
+        MGFVec::<f64>::try_from_iter(lines),
         Err(MascotError::InputLine {
             line_number: 9,
             source,
@@ -1402,7 +1437,7 @@ fn test_gnps_builder_loads_existing_downloaded_file() -> Result<()> {
         path: target_directory.display().to_string(),
         source,
     })?;
-    let builder = MGFVec::<usize, f32>::gnps()
+    let builder = MGFVec::<f32>::gnps()
         .url("https://example.invalid/ALL_GNPS.mgf")
         .target_directory(&target_directory)
         .file_name("cached.mgf")
@@ -1483,7 +1518,7 @@ fn test_gnps_builder_downloads_existing_file_without_loading() -> Result<()> {
         path: target_directory.display().to_string(),
         source,
     })?;
-    let builder = MGFVec::<usize, f32>::gnps()
+    let builder = MGFVec::<f32>::gnps()
         .url("https://example.invalid/ALL_GNPS.mgf")
         .target_directory(&target_directory)
         .file_name("cached-invalid.mgf")
@@ -1507,7 +1542,7 @@ fn test_gnps_builder_downloads_existing_file_without_loading() -> Result<()> {
 #[test]
 fn test_gnps_builder_rejects_empty_file_name() {
     assert!(matches!(
-        pollster::block_on(MGFVec::<usize>::gnps().file_name("").load()),
+        pollster::block_on(MGFVec::<f64>::gnps().file_name("").load()),
         Err(MascotError::EmptyFilename)
     ));
 }
@@ -1523,7 +1558,7 @@ fn test_mass_spec_gym_builder_loads_existing_downloaded_file() -> Result<()> {
         path: target_directory.display().to_string(),
         source,
     })?;
-    let builder = MGFVec::<usize, f32>::mass_spec_gym()
+    let builder = MGFVec::<f32>::mass_spec_gym()
         .url("https://example.invalid/MassSpecGym.mgf")
         .target_directory(&target_directory)
         .verbose()
@@ -1568,7 +1603,7 @@ END IONS
     assert_eq!(load.skipped_records(), 1);
     assert_eq!(load.path(), path.as_path());
     assert_eq!(load.bytes(), expected_bytes);
-    assert_eq!(load.spectra()[0].feature_id(), Some(1));
+    assert_eq!(load.spectra()[0].feature_id(), Some("MassSpecGymID0000001"));
     assert_eq!(load.spectra()[0].level(), 2);
     assert_eq!(load.spectra()[0].charge(), 1);
     assert_eq!(load.spectra()[0].ion_mode(), Some(IonMode::Positive));
@@ -1605,7 +1640,7 @@ fn test_mass_spec_gym_builder_downloads_existing_file_without_loading() -> Resul
         path: target_directory.display().to_string(),
         source,
     })?;
-    let builder = MGFVec::<usize, f32>::mass_spec_gym()
+    let builder = MGFVec::<f32>::mass_spec_gym()
         .url("https://example.invalid/MassSpecGym.mgf")
         .target_directory(&target_directory)
         .file_name("cached-invalid.mgf")
@@ -1629,14 +1664,14 @@ fn test_mass_spec_gym_builder_downloads_existing_file_without_loading() -> Resul
 #[test]
 fn test_mass_spec_gym_builder_rejects_empty_file_name() {
     assert!(matches!(
-        pollster::block_on(MGFVec::<usize>::mass_spec_gym().file_name("").load()),
+        pollster::block_on(MGFVec::<f64>::mass_spec_gym().file_name("").load()),
         Err(MascotError::EmptyFilename)
     ));
 }
 
 #[test]
 fn test_gems_a10_builder_defaults_to_published_parts() -> Result<()> {
-    let builder = MGFVec::<usize>::gems_a10();
+    let builder = MGFVec::<f64>::gems_a10();
 
     assert_eq!(builder.selected_variant(), GemsA10Variant::Top100Peaks);
     assert_eq!(builder.record_id(), GEMS_A10_ZENODO_RECORD_ID);
@@ -1660,7 +1695,7 @@ fn test_gems_a10_builder_defaults_to_published_parts() -> Result<()> {
         "GeMS_A10.mgf.part-00009.mgf.zst"
     );
     assert!(matches!(
-        MGFVec::<usize>::gems_a10().part(GEMS_A10_MGF_PART_COUNT),
+        MGFVec::<f64>::gems_a10().part(GEMS_A10_MGF_PART_COUNT),
         Err(MascotError::InvalidGemsA10Part { .. })
     ));
 
@@ -1669,7 +1704,7 @@ fn test_gems_a10_builder_defaults_to_published_parts() -> Result<()> {
 
 #[test]
 fn test_gems_a10_builder_selects_top_60_variant() {
-    let builder = MGFVec::<usize>::gems_a10_top_60_peaks();
+    let builder = MGFVec::<f64>::gems_a10_top_60_peaks();
 
     assert_eq!(builder.selected_variant(), GemsA10Variant::Top60Peaks);
     assert_eq!(builder.record_id(), GEMS_A10_TOP_60_ZENODO_RECORD_ID);
@@ -1688,7 +1723,7 @@ fn test_gems_a10_builder_selects_top_60_variant() {
 
 #[test]
 fn test_gems_a10_builder_selects_top_40_variant() {
-    let builder = MGFVec::<usize>::gems_a10_top_40_peaks();
+    let builder = MGFVec::<f64>::gems_a10_top_40_peaks();
 
     assert_eq!(builder.selected_variant(), GemsA10Variant::Top40Peaks);
     assert_eq!(builder.record_id(), GEMS_A10_TOP_40_ZENODO_RECORD_ID);
@@ -1714,7 +1749,7 @@ fn test_gems_a10_builder_loads_existing_downloaded_file() -> Result<()> {
         path: target_directory.display().to_string(),
         source,
     })?;
-    let builder = MGFVec::<usize, f32>::gems_a10()
+    let builder = MGFVec::<f32>::gems_a10()
         .target_directory(&target_directory)
         .file_key("cached.mgf")
         .verbose()
@@ -1776,7 +1811,7 @@ fn test_gems_a10_builder_downloads_existing_file_without_loading() -> Result<()>
         path: target_directory.display().to_string(),
         source,
     })?;
-    let builder = MGFVec::<usize, f32>::gems_a10()
+    let builder = MGFVec::<f32>::gems_a10()
         .target_directory(&target_directory)
         .file_key("cached-invalid.mgf")
         .force_download(false);
@@ -1803,7 +1838,7 @@ fn test_gems_a10_builder_downloads_existing_file_without_loading() -> Result<()>
 fn test_gems_a10_builder_rejects_empty_file_selection() {
     assert!(matches!(
         pollster::block_on(
-            MGFVec::<usize>::gems_a10()
+            MGFVec::<f64>::gems_a10()
                 .file_keys(core::iter::empty::<&str>())
                 .load()
         ),
@@ -1813,7 +1848,7 @@ fn test_gems_a10_builder_rejects_empty_file_selection() {
         })
     ));
     assert!(matches!(
-        pollster::block_on(MGFVec::<usize>::gems_a10().file_key("").load()),
+        pollster::block_on(MGFVec::<f64>::gems_a10().file_key("").load()),
         Err(MascotError::EmptyFilename)
     ));
 }

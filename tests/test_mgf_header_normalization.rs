@@ -91,7 +91,7 @@ RECORD_DATE=2016.01.19 (Created 2007.08.01, modified 2011.05.06)
 139.0 0.00800801
 END IONS";
 
-fn assert_mona_style_spectrum(spectra: &MGFVec<usize>) {
+fn assert_mona_style_spectrum(spectra: &MGFVec) {
     assert_eq!(spectra.len(), 1);
     assert_eq!(spectra[0].charge(), 1);
     assert_eq!(spectra[0].level(), 2);
@@ -108,7 +108,7 @@ fn assert_mona_style_spectrum(spectra: &MGFVec<usize>) {
 
 #[test]
 fn test_mona_style_header_aliases_parse() -> Result<()> {
-    let spectra: MGFVec<usize> = MONA_STYLE_RECORD.parse()?;
+    let spectra: MGFVec = MONA_STYLE_RECORD.parse()?;
     assert_mona_style_spectrum(&spectra);
 
     let path = std::env::temp_dir().join(format!(
@@ -119,8 +119,23 @@ fn test_mona_style_header_aliases_parse() -> Result<()> {
         path: path.display().to_string(),
         source,
     })?;
-    let spectra = MGFVec::from_path(&path)?;
+    let spectra = MGFVec::<f64>::from_path(&path)?;
     let _ = std::fs::remove_file(&path);
+    assert_mona_style_spectrum(&spectra);
+
+    Ok(())
+}
+
+#[test]
+fn test_mona_style_header_aliases_parse_with_surrounding_whitespace() -> Result<()> {
+    let mut document = MONA_STYLE_RECORD
+        .lines()
+        .map(|line| format!("    {line}    "))
+        .collect::<Vec<_>>()
+        .join("\n");
+    document.push_str("\n    ");
+
+    let spectra: MGFVec = document.parse()?;
     assert_mona_style_spectrum(&spectra);
 
     Ok(())
@@ -144,7 +159,7 @@ FORMULA=C12H8F3N5O3S
 END IONS
 ";
 
-    let spectra: MGFVec<usize> = document.parse()?;
+    let spectra: MGFVec = document.parse()?;
 
     assert_eq!(spectra.len(), 1);
     assert_eq!(spectra[0].charge(), 1);

@@ -25,7 +25,7 @@ fn test_parse_i8_charge_values() -> Result<()> {
             "END IONS",
         ];
 
-        let mgf: MGFVec<usize> = MGFVec::try_from_iter(lines)?;
+        let mgf: MGFVec = MGFVec::try_from_iter(lines)?;
         assert_eq!(mgf[0].charge(), expected_charge);
     }
 

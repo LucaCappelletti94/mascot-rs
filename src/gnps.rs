@@ -109,8 +109,8 @@ impl<P: SpectrumFloat> GNPSBuilder<P> {
         })
     }
 
-    fn load_path(path: &Path) -> Result<(MGFVec<usize, P>, usize)> {
-        MGFVec::<usize, P>::from_path_skipping_invalid_records(path)
+    fn load_path(path: &Path) -> Result<(MGFVec<P>, usize)> {
+        MGFVec::<P>::from_path_skipping_invalid_records(path)
     }
 }
 
@@ -163,7 +163,7 @@ impl GNPSDownload {
 #[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
 #[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
 pub struct GNPSLoad<P: SpectrumFloat = f64> {
-    spectra: MGFVec<usize, P>,
+    spectra: MGFVec<P>,
     skipped_records: usize,
     path: PathBuf,
     bytes: u64,
@@ -172,13 +172,13 @@ pub struct GNPSLoad<P: SpectrumFloat = f64> {
 impl<P: SpectrumFloat> GNPSLoad<P> {
     /// Returns the loaded spectra.
     #[must_use]
-    pub const fn spectra(&self) -> &MGFVec<usize, P> {
+    pub const fn spectra(&self) -> &MGFVec<P> {
         &self.spectra
     }
 
     /// Consumes the load result and returns the loaded spectra.
     #[must_use]
-    pub fn into_spectra(self) -> MGFVec<usize, P> {
+    pub fn into_spectra(self) -> MGFVec<P> {
         self.spectra
     }
 
@@ -201,8 +201,8 @@ impl<P: SpectrumFloat> GNPSLoad<P> {
     }
 }
 
-impl<P: SpectrumFloat> AsRef<MGFVec<usize, P>> for GNPSLoad<P> {
-    fn as_ref(&self) -> &MGFVec<usize, P> {
+impl<P: SpectrumFloat> AsRef<MGFVec<P>> for GNPSLoad<P> {
+    fn as_ref(&self) -> &MGFVec<P> {
         self.spectra()
     }
 }

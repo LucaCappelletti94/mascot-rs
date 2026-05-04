@@ -2,10 +2,8 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use core::ops::Add;
-use core::{fmt::Debug, str::FromStr};
 
-use molecular_formulas::prelude::ChemicalFormula;
+use molecular_formulas::prelude::{ChemicalFormula, MolecularFormula};
 
 use crate::mascot_generic_format_metadata::{insert_sorted_arbitrary_metadata, FormulaMetadata};
 use crate::numeric;
@@ -33,17 +31,18 @@ enum MGFMetadataLine<'a> {
 
 /// Builder for metadata parsed from MGF header lines.
 #[derive(Debug, Clone)]
-pub struct MascotGenericFormatMetadataBuilder<I, P: SpectrumFloat = f64> {
-    feature_id: Option<I>,
+pub struct MascotGenericFormatMetadataBuilder<P: SpectrumFloat = f64> {
+    feature_id: Option<String>,
+    scans: Option<String>,
     level: Option<u8>,
     precursor_mz: Option<P>,
     retention_time: Option<f64>,
     charge: Option<i8>,
-    merged_scan_count: Option<I>,
-    retained_merged_scan_count: Option<I>,
-    merged_scans_removed_due_to_low_quality: Option<I>,
-    merged_scans_removed_due_to_low_cosine: Option<I>,
-    merged_total_scan_count: Option<I>,
+    merged_scan_count: Option<usize>,
+    retained_merged_scan_count: Option<usize>,
+    merged_scans_removed_due_to_low_quality: Option<usize>,
+    merged_scans_removed_due_to_low_cosine: Option<usize>,
+    merged_total_scan_count: Option<usize>,
     filename: Option<String>,
     smiles: Option<Smiles>,
     formula: Option<FormulaMetadata>,
@@ -53,10 +52,11 @@ pub struct MascotGenericFormatMetadataBuilder<I, P: SpectrumFloat = f64> {
     arbitrary_metadata: Vec<(String, String)>,
 }
 
-impl<I, P: SpectrumFloat> Default for MascotGenericFormatMetadataBuilder<I, P> {
+impl<P: SpectrumFloat> Default for MascotGenericFormatMetadataBuilder<P> {
     fn default() -> Self {
         Self {
             feature_id: None,
+            scans: None,
             level: None,
             precursor_mz: None,
             retention_time: None,
@@ -77,7 +77,7 @@ impl<I, P: SpectrumFloat> Default for MascotGenericFormatMetadataBuilder<I, P> {
     }
 }
 
-impl<I, P: SpectrumFloat> MascotGenericFormatMetadataBuilder<I, P> {
+impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
     const fn has_merged_scan_metadata(&self) -> bool {
         self.merged_scan_count.is_some()
             || self.retained_merged_scan_count.is_some()
@@ -95,12 +95,8 @@ impl<I, P: SpectrumFloat> MascotGenericFormatMetadataBuilder<I, P> {
     }
 }
 
-impl<
-        I: Copy + PartialEq + Eq + From<usize> + Debug + FromStr + Add<Output = I>,
-        P: SpectrumFloat,
-    > MascotGenericFormatMetadataBuilder<I, P>
-{
-    fn required_merged_scan_field(value: Option<I>, field: &'static str) -> Result<I> {
+impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
+    fn required_merged_scan_field(value: Option<usize>, field: &'static str) -> Result<usize> {
         value.ok_or(MascotError::MissingField {
             builder: "MascotGenericFormatMetadata",
             field,
@@ -144,10 +140,41 @@ impl<
     fn validate_formula_matches_smiles(&self) -> Result<()> {
         if let (Some(formula), Some(smiles)) = (&self.formula, &self.smiles) {
             let smiles_formula = ChemicalFormula::<u32, i32>::from(smiles);
-            if formula.formula() != &smiles_formula {
+            let formula_merged = formula.formula().merge_mixtures().map_err(|source| {
+                MascotError::FormulaMixtureMerge {
+                    formula_source: "MGF header",
+                    formula: formula.original().to_string(),
+                    source,
+                }
+            })?;
+            let smiles_formula_merged = smiles_formula.merge_mixtures().map_err(|source| {
+                MascotError::FormulaMixtureMerge {
+                    formula_source: "SMILES-derived",
+                    formula: smiles_formula.to_string(),
+                    source,
+                }
+            })?;
+            let formula_atom_counts =
+                formula_merged
+                    .element_count_vector::<u32>()
+                    .map_err(|source| MascotError::FormulaAtomCountVector {
+                        formula_source: "MGF header",
+                        formula: formula_merged.to_string(),
+                        source,
+                    })?;
+            let smiles_formula_atom_counts = smiles_formula_merged
+                .element_count_vector::<u32>()
+                .map_err(|source| MascotError::FormulaAtomCountVector {
+                    formula_source: "SMILES-derived",
+                    formula: smiles_formula_merged.to_string(),
+                    source,
+                })?;
+            if formula_atom_counts != smiles_formula_atom_counts {
                 return Err(MascotError::FormulaSmilesMismatch {
                     formula: formula.original().to_string(),
+                    merged_formula: formula_merged.to_string(),
                     smiles_formula: smiles_formula.to_string(),
+                    merged_smiles_formula: smiles_formula_merged.to_string(),
                 });
             }
         }
@@ -160,7 +187,7 @@ impl<
     /// # Errors
     /// Returns an error if required fields are missing or merged-scan metadata
     /// is invalid.
-    pub(super) fn build(self) -> Result<(MascotGenericFormatMetadata<I>, P)> {
+    pub(super) fn build(self) -> Result<(MascotGenericFormatMetadata, P)> {
         self.validate_merged_scan_metadata()?;
         self.validate_formula_matches_smiles()?;
 
@@ -179,6 +206,7 @@ impl<
             self.smiles,
             self.ion_mode,
         )?
+        .with_scans(self.scans)
         .with_formula_metadata(self.formula)
         .with_splash(self.splash)
         .with_source_instrument(self.source_instrument)
@@ -192,9 +220,7 @@ impl<
     }
 }
 
-impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
-    MascotGenericFormatMetadataBuilder<I, P>
-{
+impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
     fn set_parsed_field<T>(
         slot: &mut Option<T>,
         value: T,
@@ -218,10 +244,14 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
     }
 
     fn digest_feature_id_line(&mut self, stripped: &str, line: &str) -> Result<()> {
-        let feature_id = stripped.parse::<I>().map_err(|_| MascotError::ParseField {
-            field: "feature ID",
-            line: line.to_string(),
-        })?;
+        let stripped = stripped.trim();
+        if stripped.is_empty() {
+            return Err(MascotError::ParseField {
+                field: "feature ID",
+                line: line.to_string(),
+            });
+        }
+        let feature_id = stripped.to_string();
         Self::set_parsed_field(
             &mut self.feature_id,
             feature_id,
@@ -285,24 +315,25 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
     }
 
     fn digest_scans_line(&mut self, stripped: &str, line: &str) -> Result<()> {
+        let stripped = stripped.trim();
         if stripped == "-1" {
             return Ok(());
         }
 
-        let scans = stripped.parse::<I>().map_err(|_| MascotError::ParseField {
-            field: "scans",
-            line: line.to_string(),
-        })?;
-        match self.feature_id {
-            Some(feature_id) if scans != feature_id => Err(MascotError::ScanFeatureIdMismatch {
+        if stripped.is_empty() {
+            return Err(MascotError::ParseField {
+                field: "scans",
                 line: line.to_string(),
-            }),
-            Some(_) => Ok(()),
-            None => {
-                self.feature_id = Some(scans);
-                Ok(())
-            }
+            });
         }
+
+        Self::set_parsed_field(
+            &mut self.scans,
+            stripped.to_string(),
+            "scans",
+            line,
+            |observed, value| observed == value,
+        )
     }
 
     fn parse_trailing_sign_charge(magnitude: &str, sign: i8, line: &str) -> Result<i8> {
@@ -520,17 +551,21 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
         }
     }
 
-    fn parse_merged_scan_count(value: &str, line: &str, label: &'static str) -> Result<I> {
+    fn parse_merged_scan_count(value: &str, line: &str, label: &'static str) -> Result<usize> {
         value
             .trim()
-            .parse::<I>()
+            .parse::<usize>()
             .map_err(|_| MascotError::ParseField {
                 field: label,
                 line: line.to_string(),
             })
     }
 
-    fn parse_first_merged_scan_count(fragment: &str, line: &str, label: &'static str) -> Result<I> {
+    fn parse_first_merged_scan_count(
+        fragment: &str,
+        line: &str,
+        label: &'static str,
+    ) -> Result<usize> {
         let value = fragment
             .split_whitespace()
             .next()
@@ -544,14 +579,13 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
             .ok_or_else(|| Self::unsupported_merged_scan_line_error(line))?;
         let mut scan_count = 0_usize;
         for scan in stripped.split(',') {
-            scan.parse::<I>().map_err(|_| MascotError::ParseField {
+            scan.parse::<usize>().map_err(|_| MascotError::ParseField {
                 field: "merged scan numbers",
                 line: line.to_string(),
             })?;
             scan_count += 1;
         }
 
-        let scan_count = I::from(scan_count);
         if self
             .retained_merged_scan_count
             .is_some_and(|retained_count| retained_count != scan_count)
@@ -624,9 +658,7 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
     }
 }
 
-impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
-    MascotGenericFormatMetadataBuilder<I, P>
-{
+impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
     fn classify_line(line: &str) -> Option<MGFMetadataLine<'_>> {
         if let Some(stripped) = line.strip_prefix("FEATURE_ID=") {
             return Some(MGFMetadataLine::FeatureId(stripped));
@@ -729,7 +761,7 @@ impl<I: FromStr + Eq + Copy + Add<Output = I> + From<usize>, P: SpectrumFloat>
     ///
     /// # Error
     /// * If feature ID was already encountered and it is now different.
-    /// * If scans is not -1 or equal to the feature ID.
+    /// * If scans was already encountered and it is now different.
     /// * If PEPMASS was already encountered and it is now different.
     /// * If rtinseconds was already encountered and it is now different.
     pub(super) fn digest_line(&mut self, line: &str) -> Result<()> {
@@ -797,7 +829,7 @@ mod tests {
             "SOURCE_INSTRUMENT=N/A-N/A",
             "SCANS=-1",
         ] {
-            assert!(MascotGenericFormatMetadataBuilder::<usize>::can_parse_line(
+            assert!(MascotGenericFormatMetadataBuilder::<f64>::can_parse_line(
                 line
             ));
         }
@@ -805,7 +837,7 @@ mod tests {
 
     #[test]
     fn builds_metadata_from_lines() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
 
         parser.digest_line("FEATURE_ID=1")?;
         parser.digest_line("PEPMASS=381.0795")?;
@@ -826,7 +858,8 @@ mod tests {
 
         let (mascot_generic_format_metadata, precursor_mz) = parser.build()?;
 
-        assert_eq!(mascot_generic_format_metadata.feature_id(), Some(1));
+        assert_eq!(mascot_generic_format_metadata.feature_id(), Some("1"));
+        assert_eq!(mascot_generic_format_metadata.scans(), Some("1"));
         assert_eq!(mascot_generic_format_metadata.level(), 2);
         assert_eq!(precursor_mz.to_bits(), 381.0795_f64.to_bits());
         assert_eq!(
@@ -865,7 +898,7 @@ mod tests {
 
     #[test]
     fn stores_arbitrary_metadata_sorted_by_key() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
 
         parser.digest_line("FEATURE_ID=1")?;
         parser.digest_line("PEPMASS=381.0795")?;
@@ -898,7 +931,7 @@ mod tests {
 
     #[test]
     fn builds_metadata_without_feature_id() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
 
         parser.digest_line("PEPMASS=381.0795")?;
         parser.digest_line("MSLEVEL=2")?;
@@ -908,6 +941,7 @@ mod tests {
         let (mascot_generic_format_metadata, precursor_mz) = parser.build()?;
 
         assert_eq!(mascot_generic_format_metadata.feature_id(), None);
+        assert_eq!(mascot_generic_format_metadata.scans(), None);
         assert_eq!(mascot_generic_format_metadata.level(), 2);
         assert_eq!(precursor_mz.to_bits(), 381.0795_f64.to_bits());
         assert_eq!(mascot_generic_format_metadata.charge(), 1);
@@ -916,7 +950,7 @@ mod tests {
 
     #[test]
     fn build_returns_precursor_mz_in_requested_precision() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize, f32>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f32>::default();
 
         parser.digest_line("FEATURE_ID=1")?;
         parser.digest_line("PEPMASS=381.0795")?;
@@ -932,7 +966,7 @@ mod tests {
 
     #[test]
     fn partial_merged_scan_metadata_prevents_building() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
 
         parser.digest_line("FEATURE_ID=1")?;
         parser.digest_line("PEPMASS=381.0795")?;
@@ -948,7 +982,7 @@ mod tests {
 
     #[test]
     fn rejects_mismatched_merged_scan_metadata() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         parser.digest_line("MERGED_SCANS=1567,1540")?;
 
         assert!(matches!(
@@ -962,7 +996,7 @@ mod tests {
 
     #[test]
     fn rejects_conflicting_feature_id() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         parser.digest_line("FEATURE_ID=1")?;
         assert!(parser.digest_line("FEATURE_ID=2").is_err());
         Ok(())
@@ -970,15 +1004,31 @@ mod tests {
 
     #[test]
     fn rejects_conflicting_scan_id() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
-        parser.digest_line("FEATURE_ID=1")?;
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
+        parser.digest_line("SCANS=1")?;
         assert!(parser.digest_line("SCANS=2").is_err());
         Ok(())
     }
 
     #[test]
+    fn accepts_distinct_feature_id_and_scan_metadata() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
+        parser.digest_line("FEATURE_ID=feature-a")?;
+        parser.digest_line("SCANS=176-199")?;
+        parser.digest_line("PEPMASS=381.0795")?;
+        parser.digest_line("MSLEVEL=2")?;
+        parser.digest_line("CHARGE=1")?;
+
+        let (metadata, _precursor_mz) = parser.build()?;
+
+        assert_eq!(metadata.feature_id(), Some("feature-a"));
+        assert_eq!(metadata.scans(), Some("176-199"));
+        Ok(())
+    }
+
+    #[test]
     fn rejects_conflicting_precursor_mz() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         parser.digest_line("PEPMASS=381.0795")?;
         assert!(parser.digest_line("PEPMASS=381.0796").is_err());
         Ok(())
@@ -986,7 +1036,7 @@ mod tests {
 
     #[test]
     fn rejects_conflicting_retention_time() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         parser.digest_line("RTINSECONDS=37.083")?;
         assert!(parser.digest_line("RTINSECONDS=37.084").is_err());
         Ok(())
@@ -994,7 +1044,7 @@ mod tests {
 
     #[test]
     fn rejects_conflicting_charge() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         parser.digest_line("CHARGE=1")?;
         assert!(parser.digest_line("CHARGE=2").is_err());
         Ok(())
@@ -1002,7 +1052,7 @@ mod tests {
 
     #[test]
     fn rejects_conflicting_smiles() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         parser.digest_line("SMILES=CCO")?;
         assert!(parser.digest_line("SMILES=CCC").is_err());
         Ok(())
@@ -1010,7 +1060,7 @@ mod tests {
 
     #[test]
     fn rejects_conflicting_formula() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         parser.digest_line("FORMULA=C2H6O")?;
         assert!(parser.digest_line("FORMULA=C3H8O").is_err());
         Ok(())
@@ -1018,7 +1068,7 @@ mod tests {
 
     #[test]
     fn rejects_conflicting_splash() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         parser.digest_line("SPLASH=splash10-0udi-0490000000-4425acda10ed7d4709bd")?;
         assert!(parser
             .digest_line("SPLASH=splash10-0000-0000000000-00000000000000000000")
@@ -1028,7 +1078,7 @@ mod tests {
 
     #[test]
     fn rejects_formula_smiles_mismatch_on_build() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         parser.digest_line("PEPMASS=381.0795")?;
         parser.digest_line("MSLEVEL=2")?;
         parser.digest_line("CHARGE=1")?;
@@ -1044,7 +1094,7 @@ mod tests {
 
     #[test]
     fn rejects_conflicting_ion_mode() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         parser.digest_line("IONMODE=Positive")?;
         assert!(parser.digest_line("IONMODE=Negative").is_err());
         Ok(())
@@ -1052,7 +1102,7 @@ mod tests {
 
     #[test]
     fn rejects_conflicting_source_instrument() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         parser.digest_line("SOURCE_INSTRUMENT=LC-ESI-Orbitrap")?;
         parser.digest_line("SOURCE_INSTRUMENT=ESI-Orbitrap")?;
         assert!(parser.digest_line("SOURCE_INSTRUMENT=ESI-qTof").is_err());
@@ -1061,7 +1111,7 @@ mod tests {
 
     #[test]
     fn accepts_repeated_identical_metadata_lines() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
 
         for line in [
             "FEATURE_ID=1",
@@ -1102,13 +1152,13 @@ mod tests {
     #[test]
     fn rejects_invalid_scalar_metadata_lines() {
         for line in [
-            "FEATURE_ID=not-a-number",
+            "FEATURE_ID=",
             "PEPMASS=not-a-number",
             "PEPMASS=NaN",
             "PEPMASS=0",
             "MSLEVEL=not-a-number",
             "MSLEVEL=0",
-            "SCANS=not-a-number",
+            "SCANS=",
             "CHARGE=+1+",
             "CHARGE=abc+",
             "CHARGE=not-a-number",
@@ -1132,25 +1182,25 @@ mod tests {
             "MERGED_STATS=1 / 2 (0 removed due to low quality, 0 removed due to low cosine).",
             "UNKNOWN=1",
         ] {
-            let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+            let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
             assert!(parser.digest_line(line).is_err(), "{line}");
         }
 
         assert!(
-            MascotGenericFormatMetadataBuilder::<usize>::parse_ms_level_value(
+            MascotGenericFormatMetadataBuilder::<f64>::parse_ms_level_value(
                 "not-a-level",
                 "MSLEVEL=not-a-level",
             )
             .is_err()
         );
 
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         assert!(parser.digest_merge_scans_line("MERGED_OTHER=1").is_err());
     }
 
     #[test]
     fn parses_minimum_negative_charge() -> Result<()> {
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         parser.digest_line("CHARGE=128-")?;
         assert_eq!(parser.charge, Some(i8::MIN));
         Ok(())
@@ -1158,13 +1208,13 @@ mod tests {
 
     #[test]
     fn reports_missing_required_fields_on_build() -> Result<()> {
-        let parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         assert!(matches!(
             parser.build(),
             Err(MascotError::MissingField { field: "level", .. })
         ));
 
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         parser.digest_line("MSLEVEL=2")?;
         parser.digest_line("CHARGE=1")?;
         assert!(matches!(
@@ -1175,7 +1225,7 @@ mod tests {
             })
         ));
 
-        let mut parser = MascotGenericFormatMetadataBuilder::<usize>::default();
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         parser.digest_line("PEPMASS=381.0795")?;
         parser.digest_line("MSLEVEL=2")?;
         assert!(matches!(
@@ -1192,7 +1242,8 @@ mod tests {
     #[test]
     fn validates_complete_merged_scan_metadata_on_build() {
         let parser = MascotGenericFormatMetadataBuilder {
-            feature_id: Some(1_usize),
+            feature_id: Some("1".to_string()),
+            scans: Some("1".to_string()),
             level: Some(2),
             precursor_mz: Some(381.0795),
             retention_time: None,

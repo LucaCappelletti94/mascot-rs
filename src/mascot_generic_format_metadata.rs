@@ -197,8 +197,9 @@ impl FromStr for Instrument {
 #[derive(Debug, Clone)]
 #[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
 #[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
-pub struct MascotGenericFormatMetadata<I> {
-    feature_id: Option<I>,
+pub struct MascotGenericFormatMetadata {
+    feature_id: Option<String>,
+    scans: Option<String>,
     level: u8,
     retention_time: Option<f64>,
     charge: i8,
@@ -266,7 +267,7 @@ fn sorted_arbitrary_metadata(
     sorted_metadata
 }
 
-impl<I: Copy> MascotGenericFormatMetadata<I> {
+impl MascotGenericFormatMetadata {
     /// Creates a new [`MascotGenericFormatMetadata`].
     ///
     /// Use [`Self::new_with_smiles`] when SMILES metadata is available.
@@ -291,21 +292,21 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// ```
     /// use mascot_rs::prelude::*;
     ///
-    /// let feature_id = Some(1);
+    /// let feature_id = Some("1".to_string());
     /// let level = 2;
     /// let retention_time = Some(37.083);
     /// let charge = 1;
     /// let filename = Some("20220513_PMA_DBGI_01_04_003.mzML".to_string());
     ///
-    /// let mascot_generic_format_metadata: MascotGenericFormatMetadata<usize> = MascotGenericFormatMetadata::new(
-    ///     feature_id,
+    /// let mascot_generic_format_metadata: MascotGenericFormatMetadata = MascotGenericFormatMetadata::new(
+    ///     feature_id.clone(),
     ///     level,
     ///     retention_time,
     ///     charge,
     ///     filename.clone(),
     /// ).unwrap();
     ///
-    /// assert_eq!(mascot_generic_format_metadata.feature_id(), feature_id);
+    /// assert_eq!(mascot_generic_format_metadata.feature_id(), feature_id.as_deref());
     /// assert_eq!(mascot_generic_format_metadata.level(), level);
     /// assert_eq!(mascot_generic_format_metadata.retention_time(), retention_time);
     /// assert_eq!(mascot_generic_format_metadata.charge(), charge);
@@ -313,8 +314,8 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// assert!(mascot_generic_format_metadata.smiles().is_none());
     ///
     /// assert!(
-    ///     MascotGenericFormatMetadata::<usize>::new(
-    ///         feature_id,
+    ///     MascotGenericFormatMetadata::new(
+    ///         feature_id.clone(),
     ///         0,
     ///         retention_time,
     ///         charge,
@@ -323,8 +324,8 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// );
     ///
     /// assert!(
-    ///     MascotGenericFormatMetadata::<usize>::new(
-    ///         feature_id,
+    ///     MascotGenericFormatMetadata::new(
+    ///         feature_id.clone(),
     ///         level,
     ///         Some(-1.0),
     ///         charge,
@@ -333,8 +334,8 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// );
     ///
     /// assert!(
-    ///     MascotGenericFormatMetadata::<usize>::new(
-    ///         feature_id,
+    ///     MascotGenericFormatMetadata::new(
+    ///         feature_id.clone(),
     ///         level,
     ///         retention_time,
     ///         charge,
@@ -344,7 +345,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     ///
     /// ```
     pub fn new(
-        feature_id: Option<I>,
+        feature_id: Option<String>,
         level: u8,
         retention_time: Option<f64>,
         charge: i8,
@@ -375,8 +376,8 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// use mascot_rs::prelude::*;
     ///
     /// let smiles: Smiles = "CCO".parse().unwrap();
-    /// let metadata: MascotGenericFormatMetadata<usize> = MascotGenericFormatMetadata::new_with_smiles(
-    ///     Some(1_usize),
+    /// let metadata: MascotGenericFormatMetadata = MascotGenericFormatMetadata::new_with_smiles(
+    ///     Some("1".to_string()),
     ///     2,
     ///     Some(37.083),
     ///     1,
@@ -387,7 +388,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// assert_eq!(metadata.smiles().map(ToString::to_string).as_deref(), Some("CCO"));
     /// ```
     pub fn new_with_smiles(
-        feature_id: Option<I>,
+        feature_id: Option<String>,
         level: u8,
         retention_time: Option<f64>,
         charge: i8,
@@ -427,9 +428,9 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// ```
     /// use mascot_rs::prelude::*;
     ///
-    /// let metadata: MascotGenericFormatMetadata<usize> =
+    /// let metadata: MascotGenericFormatMetadata =
     ///     MascotGenericFormatMetadata::new_with_smiles_and_ion_mode(
-    ///         Some(1),
+    ///         Some("1".to_string()),
     ///         2,
     ///         None,
     ///         1,
@@ -441,7 +442,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// assert_eq!(metadata.ion_mode(), Some(IonMode::Positive));
     /// ```
     pub fn new_with_smiles_and_ion_mode(
-        feature_id: Option<I>,
+        feature_id: Option<String>,
         level: u8,
         retention_time: Option<f64>,
         charge: i8,
@@ -472,6 +473,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
 
         Ok(Self {
             feature_id,
+            scans: None,
             level,
             retention_time,
             charge,
@@ -504,9 +506,9 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// ```
     /// use mascot_rs::prelude::*;
     ///
-    /// let metadata: MascotGenericFormatMetadata<usize> =
+    /// let metadata: MascotGenericFormatMetadata =
     ///     MascotGenericFormatMetadata::new_with_smiles_and_ion_mode(
-    ///         Some(1),
+    ///         Some("1".to_string()),
     ///         2,
     ///         None,
     ///         1,
@@ -529,6 +531,36 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
         self
     }
 
+    /// Returns this metadata with scan metadata set.
+    ///
+    /// `SCANS=-1` is treated as missing scan metadata.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use mascot_rs::prelude::*;
+    ///
+    /// let metadata = MascotGenericFormatMetadata::new(
+    ///     Some("feature-a".to_string()),
+    ///     2,
+    ///     None,
+    ///     1,
+    ///     None,
+    /// ).unwrap()
+    /// .with_scans(Some("176-199".to_string()));
+    ///
+    /// assert_eq!(metadata.feature_id(), Some("feature-a"));
+    /// assert_eq!(metadata.scans(), Some("176-199"));
+    /// ```
+    #[must_use]
+    pub fn with_scans(mut self, scans: Option<String>) -> Self {
+        self.scans = scans.and_then(|scans| {
+            let scans = scans.trim();
+            (!scans.is_empty() && scans != "-1").then(|| scans.to_string())
+        });
+        self
+    }
+
     /// Returns this metadata with arbitrary MGF header metadata set.
     ///
     /// The entries are stored sorted by key. Repeated keys keep the last value.
@@ -538,9 +570,9 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// ```
     /// use mascot_rs::prelude::*;
     ///
-    /// let metadata: MascotGenericFormatMetadata<usize> =
+    /// let metadata: MascotGenericFormatMetadata =
     ///     MascotGenericFormatMetadata::new(
-    ///         Some(1),
+    ///         Some("1".to_string()),
     ///         2,
     ///         None,
     ///         1,
@@ -571,9 +603,9 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     /// ```
     /// use mascot_rs::prelude::*;
     ///
-    /// let mut metadata: MascotGenericFormatMetadata<usize> =
+    /// let mut metadata: MascotGenericFormatMetadata =
     ///     MascotGenericFormatMetadata::new(
-    ///         Some(1),
+    ///         Some("1".to_string()),
     ///         2,
     ///         None,
     ///         1,
@@ -602,36 +634,49 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     }
 
     /// Returns the feature ID of the metadata, if present.
-    pub const fn feature_id(&self) -> Option<I> {
-        self.feature_id
+    #[must_use]
+    pub fn feature_id(&self) -> Option<&str> {
+        self.feature_id.as_deref()
+    }
+
+    /// Returns the scan metadata, if present.
+    #[must_use]
+    pub fn scans(&self) -> Option<&str> {
+        self.scans.as_deref()
     }
 
     /// Returns the MS fragmentation level.
+    #[must_use]
     pub const fn level(&self) -> u8 {
         self.level
     }
 
     /// Returns the retention time of the metadata.
+    #[must_use]
     pub const fn retention_time(&self) -> Option<f64> {
         self.retention_time
     }
 
     /// Returns the charge of the metadata.
+    #[must_use]
     pub const fn charge(&self) -> i8 {
         self.charge
     }
 
     /// Returns the ionization polarity of the metadata, if present.
+    #[must_use]
     pub const fn ion_mode(&self) -> Option<IonMode> {
         self.ion_mode
     }
 
     /// Returns the normalized instrument metadata, if present.
+    #[must_use]
     pub const fn source_instrument(&self) -> Option<Instrument> {
         self.source_instrument
     }
 
     /// Returns the parsed chemical formula metadata, if present.
+    #[must_use]
     pub const fn formula(&self) -> Option<&ChemicalFormula<u32, i32>> {
         match self.formula.as_ref() {
             Some(formula) => Some(formula.formula()),
@@ -645,6 +690,7 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     }
 
     /// Returns the `SPLASH` metadata value, if present.
+    #[must_use]
     pub fn splash(&self) -> Option<&str> {
         self.splash.as_deref()
     }
@@ -665,11 +711,13 @@ impl<I: Copy> MascotGenericFormatMetadata<I> {
     }
 
     /// Returns the filename of the metadata.
+    #[must_use]
     pub fn filename(&self) -> Option<&str> {
         self.filename.as_deref()
     }
 
     /// Returns the parsed SMILES metadata.
+    #[must_use]
     pub const fn smiles(&self) -> Option<&Smiles> {
         match self.smiles.as_ref() {
             Some(smiles) => Some(smiles.as_smiles()),

@@ -1,14 +1,7 @@
 #[cfg(feature = "std")]
 use alloc::string::String;
 use alloc::{boxed::Box, string::ToString, vec::Vec};
-#[cfg(feature = "std")]
-use core::fmt::Display;
-use core::{
-    fmt::Debug,
-    marker::PhantomData,
-    ops::{Add, Index},
-    str::FromStr,
-};
+use core::{marker::PhantomData, ops::Index, str::FromStr};
 #[cfg(feature = "std")]
 use std::{
     fs::File,
@@ -38,19 +31,19 @@ use crate::mass_spec_gym::MassSpecGymBuilder;
 #[derive(Debug)]
 #[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
 #[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
-pub struct MascotGenericFormat<I, P: SpectrumFloat = f64> {
-    metadata: MascotGenericFormatMetadata<I>,
+pub struct MascotGenericFormat<P: SpectrumFloat = f64> {
+    metadata: MascotGenericFormatMetadata,
     spectrum: GenericSpectrum<P>,
 }
 
-impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
+impl<P: SpectrumFloat> MascotGenericFormat<P> {
     /// Creates a new [`MascotGenericFormat`].
     ///
     /// # Errors
     /// Returns an error if no peak data is provided, if the peak values are
     /// invalid, or if first-level data is incompatible with the precursor m/z.
     pub fn new(
-        metadata: MascotGenericFormatMetadata<I>,
+        metadata: MascotGenericFormatMetadata,
         precursor_mz: P,
         mass_divided_by_charge_ratios: Vec<P>,
         fragment_intensities: Vec<P>,
@@ -100,7 +93,7 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
 
     /// Builds a record from parsed peaks and lets [`GenericSpectrum`] validate them.
     pub(crate) fn from_parsed_peaks(
-        metadata: MascotGenericFormatMetadata<I>,
+        metadata: MascotGenericFormatMetadata,
         precursor_mz: P,
         mut peaks: Vec<(P, P)>,
         peaks_are_strictly_increasing: bool,
@@ -140,7 +133,7 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
     }
 
     fn from_spectrum(
-        metadata: MascotGenericFormatMetadata<I>,
+        metadata: MascotGenericFormatMetadata,
         spectrum: GenericSpectrum<P>,
     ) -> Result<Self> {
         let stored_precursor_mz = spectrum.precursor_mz().to_f64();
@@ -172,8 +165,15 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
     }
 
     /// Returns the feature ID of the metadata, if present.
-    pub const fn feature_id(&self) -> Option<I> {
+    #[must_use]
+    pub fn feature_id(&self) -> Option<&str> {
         self.metadata.feature_id()
+    }
+
+    /// Returns the scan metadata, if present.
+    #[must_use]
+    pub fn scans(&self) -> Option<&str> {
+        self.metadata.scans()
     }
 
     /// Returns the MS fragmentation level.
@@ -203,12 +203,12 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
 
     /// Returns the metadata for this MGF record.
     #[must_use]
-    pub const fn metadata(&self) -> &MascotGenericFormatMetadata<I> {
+    pub const fn metadata(&self) -> &MascotGenericFormatMetadata {
         &self.metadata
     }
 
     /// Returns mutable metadata for this MGF record.
-    pub const fn metadata_mut(&mut self) -> &mut MascotGenericFormatMetadata<I> {
+    pub const fn metadata_mut(&mut self) -> &mut MascotGenericFormatMetadata {
         &mut self.metadata
     }
 
@@ -219,11 +219,7 @@ impl<I: Copy, P: SpectrumFloat> MascotGenericFormat<I, P> {
 }
 
 #[cfg(feature = "std")]
-impl<I, P> MascotGenericFormat<I, P>
-where
-    I: Copy + Display,
-    P: SpectrumFloat,
-{
+impl<P: SpectrumFloat> MascotGenericFormat<P> {
     /// Writes this record in canonical MGF syntax to a writer.
     ///
     /// # Errors
@@ -246,7 +242,7 @@ where
     where
         PathLike: AsRef<Path>,
     {
-        MGFVec::<I, P>::write_to_path(path, |writer| self.write_record_to(writer))
+        MGFVec::<P>::write_to_path(path, |writer| self.write_record_to(writer))
     }
 
     fn write_record_to<W>(&self, writer: &mut W) -> Result<()>
@@ -296,8 +292,8 @@ where
                 fragment_intensity.to_f64()
             ))?;
         }
-        match self.metadata.feature_id() {
-            Some(feature_id) => Self::map_output_io(writeln!(writer, "SCANS={feature_id}"))?,
+        match self.metadata.scans() {
+            Some(scans) => Self::map_output_io(writeln!(writer, "SCANS={scans}"))?,
             None => Self::map_output_io(writeln!(writer, "SCANS=-1"))?,
         }
         Self::map_output_io(writeln!(writer, "END IONS"))?;
@@ -306,27 +302,23 @@ where
     }
 }
 
-impl<I, P: SpectrumFloat> AsRef<GenericSpectrum<P>> for MascotGenericFormat<I, P> {
+impl<P: SpectrumFloat> AsRef<GenericSpectrum<P>> for MascotGenericFormat<P> {
     fn as_ref(&self) -> &GenericSpectrum<P> {
         &self.spectrum
     }
 }
 
-impl<I, P: SpectrumFloat> From<MascotGenericFormat<I, P>> for GenericSpectrum<P> {
-    fn from(value: MascotGenericFormat<I, P>) -> Self {
+impl<P: SpectrumFloat> From<MascotGenericFormat<P>> for GenericSpectrum<P> {
+    fn from(value: MascotGenericFormat<P>) -> Self {
         value.spectrum
     }
 }
 
-impl<I, P> FromStr for MascotGenericFormat<I, P>
-where
-    I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
-    P: SpectrumFloat,
-{
+impl<P: SpectrumFloat> FromStr for MascotGenericFormat<P> {
     type Err = MascotError;
 
     fn from_str(s: &str) -> Result<Self> {
-        let records = MGFVec::<I, P>::from_str(s)?;
+        let records = MGFVec::<P>::from_str(s)?;
         let found = records.mascot_generic_formats.len();
         if found != 1 {
             return Err(MascotError::SingleRecordExpected { found });
@@ -340,7 +332,7 @@ where
     }
 }
 
-impl<I: Copy, P: SpectrumFloat> Spectrum for MascotGenericFormat<I, P> {
+impl<P: SpectrumFloat> Spectrum for MascotGenericFormat<P> {
     type Precision = P;
     type SortedIntensitiesIter<'a>
         = <GenericSpectrum<P> as Spectrum>::SortedIntensitiesIter<'a>
@@ -392,7 +384,7 @@ impl<I: Copy, P: SpectrumFloat> Spectrum for MascotGenericFormat<I, P> {
     }
 }
 
-impl<I: Copy, P: SpectrumFloat> SpectrumMut for MascotGenericFormat<I, P> {
+impl<P: SpectrumFloat> SpectrumMut for MascotGenericFormat<P> {
     type MutationError = MascotError;
 
     fn add_peak(&mut self, mz: P, intensity: P) -> Result<&mut Self> {
@@ -412,7 +404,7 @@ impl<I: Copy, P: SpectrumFloat> SpectrumMut for MascotGenericFormat<I, P> {
     }
 }
 
-impl<I: Copy, P: SpectrumFloat> SpectrumAlloc for MascotGenericFormat<I, P> {
+impl<P: SpectrumFloat> SpectrumAlloc for MascotGenericFormat<P> {
     fn with_capacity(precursor_mz: f64, capacity: usize) -> Result<Self> {
         Ok(Self {
             metadata: MascotGenericFormatMetadata::new(None, 2, None, 0, None)?,
@@ -428,21 +420,21 @@ impl<I: Copy, P: SpectrumFloat> SpectrumAlloc for MascotGenericFormat<I, P> {
     }
 }
 
-struct MGFRecordParser<I, P: SpectrumFloat = f64> {
-    builder: MascotGenericFormatBuilder<I, P>,
+struct MGFRecordParser<P: SpectrumFloat = f64> {
+    builder: MascotGenericFormatBuilder<P>,
 }
 
-impl<I, P: SpectrumFloat> Default for MGFRecordParser<I, P> {
+impl<P: SpectrumFloat> Default for MGFRecordParser<P> {
     fn default() -> Self {
         Self {
-            builder: MascotGenericFormatBuilder::<I, P>::default(),
+            builder: MascotGenericFormatBuilder::<P>::default(),
         }
     }
 }
 
-impl<I, P: SpectrumFloat> MGFRecordParser<I, P> {
+impl<P: SpectrumFloat> MGFRecordParser<P> {
     fn reset(&mut self) {
-        self.builder = MascotGenericFormatBuilder::<I, P>::default();
+        self.builder = MascotGenericFormatBuilder::<P>::default();
     }
 
     const fn section_open(&self) -> bool {
@@ -450,12 +442,8 @@ impl<I, P: SpectrumFloat> MGFRecordParser<I, P> {
     }
 }
 
-impl<I, P> MGFRecordParser<I, P>
-where
-    I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
-    P: SpectrumFloat,
-{
-    fn digest_line(&mut self, line: &str) -> Result<Option<MascotGenericFormat<I, P>>> {
+impl<P: SpectrumFloat> MGFRecordParser<P> {
+    fn digest_line(&mut self, line: &str) -> Result<Option<MascotGenericFormat<P>>> {
         self.builder.digest_line(line)?;
 
         if self.builder.can_build() {
@@ -573,9 +561,9 @@ where
 /// Each successful item is one fully parsed [`MascotGenericFormat`]. The
 /// iterator reads input incrementally and stops after the first I/O, parse, or
 /// build error because the parser state is no longer reliable after that point.
-pub struct MGFIter<I, P: SpectrumFloat = f64, S = MGFStrLines<'static>> {
+pub struct MGFIter<P: SpectrumFloat = f64, S = MGFStrLines<'static>> {
     source: S,
-    parser: MGFRecordParser<I, P>,
+    parser: MGFRecordParser<P>,
     line_number: usize,
     skipped_records: usize,
     mode: MGFIterMode,
@@ -585,9 +573,9 @@ pub struct MGFIter<I, P: SpectrumFloat = f64, S = MGFStrLines<'static>> {
 
 #[cfg(feature = "std")]
 /// MGF iterator type returned for path-based readers.
-pub type MGFPathIter<I, P = f64> = MGFIter<I, P, MGFReader<Box<dyn BufRead>>>;
+pub type MGFPathIter<P = f64> = MGFIter<P, MGFReader<Box<dyn BufRead>>>;
 
-impl<I, P, S> MGFIter<I, P, S>
+impl<P, S> MGFIter<P, S>
 where
     P: SpectrumFloat,
     S: MGFLineSource,
@@ -597,7 +585,7 @@ where
     pub fn from_line_source(source: S) -> Self {
         Self {
             source,
-            parser: MGFRecordParser::<I, P>::default(),
+            parser: MGFRecordParser::<P>::default(),
             line_number: 0,
             skipped_records: 0,
             mode: MGFIterMode::Strict,
@@ -624,7 +612,7 @@ where
     }
 }
 
-impl<'a, I, P> MGFIter<I, P, MGFStrLines<'a>>
+impl<'a, P> MGFIter<P, MGFStrLines<'a>>
 where
     P: SpectrumFloat,
 {
@@ -636,7 +624,7 @@ where
 }
 
 #[cfg(feature = "std")]
-impl<I, P, R> MGFIter<I, P, MGFReader<R>>
+impl<P, R> MGFIter<P, MGFReader<R>>
 where
     P: SpectrumFloat,
     R: BufRead,
@@ -652,7 +640,7 @@ where
 }
 
 #[cfg(feature = "std")]
-impl<I, P> MGFIter<I, P, MGFReader<Box<dyn BufRead>>>
+impl<P> MGFIter<P, MGFReader<Box<dyn BufRead>>>
 where
     P: SpectrumFloat,
 {
@@ -668,19 +656,18 @@ where
     where
         PathLike: AsRef<Path>,
     {
-        Ok(Self::from_reader(MGFVec::<I, P>::reader_from_path(
+        Ok(Self::from_reader(MGFVec::<P>::reader_from_path(
             path.as_ref(),
         )?))
     }
 }
 
-impl<I, P, S> Iterator for MGFIter<I, P, S>
+impl<P, S> Iterator for MGFIter<P, S>
 where
-    I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
     P: SpectrumFloat,
     S: MGFLineSource,
 {
-    type Item = Result<MascotGenericFormat<I, P>>;
+    type Item = Result<MascotGenericFormat<P>>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if self.finished {
@@ -705,7 +692,8 @@ where
             };
 
             self.line_number += 1;
-            let line = line.as_ref();
+            let original_line = line.as_ref();
+            let line = original_line.trim();
             if line.is_empty() {
                 continue;
             }
@@ -745,7 +733,7 @@ where
                     self.finished = true;
                     return Some(Err(MascotError::InputLine {
                         line_number: self.line_number,
-                        line: line.to_string(),
+                        line: original_line.to_string(),
                         source: Box::new(source),
                     }));
                 }
@@ -754,9 +742,8 @@ where
     }
 }
 
-impl<I, P, S> core::iter::FusedIterator for MGFIter<I, P, S>
+impl<P, S> core::iter::FusedIterator for MGFIter<P, S>
 where
-    I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
     P: SpectrumFloat,
     S: MGFLineSource,
 {
@@ -798,11 +785,11 @@ impl MGFPathCompression {
 #[derive(Debug)]
 #[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
 #[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
-pub struct MGFVec<I, P: SpectrumFloat = f64> {
-    mascot_generic_formats: Vec<MascotGenericFormat<I, P>>,
+pub struct MGFVec<P: SpectrumFloat = f64> {
+    mascot_generic_formats: Vec<MascotGenericFormat<P>>,
 }
 
-impl<I, P: SpectrumFloat> MGFVec<I, P> {
+impl<P: SpectrumFloat> MGFVec<P> {
     /// Create a new vector of MGF objects from the file at the provided path.
     ///
     /// # Arguments
@@ -828,7 +815,7 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
     ///
     /// let path = "tests/data/20220513_PMA_DBGI_01_04_003.mgf";
     ///
-    /// let mascot_generic_formats: MGFVec<usize> = MGFVec::from_path(path).unwrap();
+    /// let mascot_generic_formats: MGFVec = MGFVec::from_path(path).unwrap();
     ///
     /// assert_eq!(mascot_generic_formats.len(), 74, concat!(
     ///     "The number of MascotGenericFormat objects in the vector should be 74, ",
@@ -844,7 +831,7 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
     ///
     /// let path = "tests/data/20220513_PMA_DBGI_01_04_001.mzML_chromatograms_deconvoluted_deisotoped_filtered_enpkg_sirius.mgf";
     ///
-    /// let mascot_generic_formats: MGFVec<usize> = MGFVec::from_path(path).unwrap();
+    /// let mascot_generic_formats: MGFVec = MGFVec::from_path(path).unwrap();
     ///
     /// assert_eq!(mascot_generic_formats.len(), 278);
     ///
@@ -855,7 +842,6 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
     pub fn from_path<PathLike>(path: PathLike) -> Result<Self>
     where
         PathLike: AsRef<Path>,
-        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
     {
         let path = path.as_ref();
         Self::from_reader(Self::reader_from_path(path)?)
@@ -870,7 +856,7 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
     /// Returns an error if the path cannot be opened or the decompressor cannot
     /// be initialized.
     #[cfg(feature = "std")]
-    pub fn iter_from_path<PathLike>(path: PathLike) -> Result<MGFPathIter<I, P>>
+    pub fn iter_from_path<PathLike>(path: PathLike) -> Result<MGFPathIter<P>>
     where
         PathLike: AsRef<Path>,
     {
@@ -952,13 +938,11 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
         }
     }
 
-    fn collect_mgf_iter<S>(iterator: MGFIter<I, P, S>) -> Result<Self>
+    fn collect_mgf_iter<S>(iterator: MGFIter<P, S>) -> Result<Self>
     where
         S: MGFLineSource,
-        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
     {
-        let mascot_generic_formats =
-            iterator.collect::<Result<Vec<MascotGenericFormat<I, P>>>>()?;
+        let mascot_generic_formats = iterator.collect::<Result<Vec<MascotGenericFormat<P>>>>()?;
 
         Ok(Self {
             mascot_generic_formats,
@@ -974,14 +958,13 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
     pub fn from_reader<R>(reader: R) -> Result<Self>
     where
         R: BufRead,
-        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
     {
-        Self::collect_mgf_iter(MGFIter::<I, P, MGFReader<R>>::from_reader(reader))
+        Self::collect_mgf_iter(MGFIter::<P, MGFReader<R>>::from_reader(reader))
     }
 
     /// Creates a streaming MGF iterator over a borrowed document string.
     #[must_use]
-    pub fn iter_from_str(document: &str) -> MGFIter<I, P, MGFStrLines<'_>> {
+    pub fn iter_from_str(document: &str) -> MGFIter<P, MGFStrLines<'_>> {
         MGFIter::from_document(document)
     }
 
@@ -998,7 +981,7 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
     /// 100.0 2.0\n\
     /// SCANS=-1\n\
     /// END IONS\n";
-    /// let mut records = MGFVec::<usize>::iter_from_reader(std::io::Cursor::new(document));
+    /// let mut records = MGFVec::<f64>::iter_from_reader(std::io::Cursor::new(document));
     ///
     /// let record = records
     ///     .next()
@@ -1011,7 +994,7 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
     /// ```
     #[cfg(feature = "std")]
     #[must_use]
-    pub fn iter_from_reader<R>(reader: R) -> MGFIter<I, P, MGFReader<R>>
+    pub fn iter_from_reader<R>(reader: R) -> MGFIter<P, MGFReader<R>>
     where
         R: BufRead,
     {
@@ -1026,10 +1009,9 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
     pub fn try_from_iter<'a, T>(iter: T) -> Result<Self>
     where
         T: IntoIterator<Item = &'a str>,
-        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
     {
         Self::collect_mgf_iter(
-            MGFIter::<I, P, MGFStrLines<'a, T::IntoIter>>::from_line_source(
+            MGFIter::<P, MGFStrLines<'a, T::IntoIter>>::from_line_source(
                 MGFStrLines::from_iterator(iter.into_iter()),
             ),
         )
@@ -1039,10 +1021,9 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
     pub(crate) fn from_reader_skipping_invalid_records<R>(reader: R) -> Result<(Self, usize)>
     where
         R: BufRead,
-        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
     {
         let mut iterator =
-            MGFIter::<I, P, MGFReader<R>>::from_reader(reader).skipping_invalid_records();
+            MGFIter::<P, MGFReader<R>>::from_reader(reader).skipping_invalid_records();
         let mut mascot_generic_formats = Vec::new();
 
         while let Some(record) = iterator.next().transpose()? {
@@ -1060,25 +1041,22 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
     }
 
     #[cfg(feature = "std")]
-    pub(crate) fn from_path_skipping_invalid_records(path: &Path) -> Result<(Self, usize)>
-    where
-        I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
-    {
+    pub(crate) fn from_path_skipping_invalid_records(path: &Path) -> Result<(Self, usize)> {
         Self::from_reader_skipping_invalid_records(Self::reader_from_path(path)?)
     }
 
     /// Returns an iterator over the MGF records in the collection.
-    pub fn iter(&self) -> core::slice::Iter<'_, MascotGenericFormat<I, P>> {
+    pub fn iter(&self) -> core::slice::Iter<'_, MascotGenericFormat<P>> {
         self.mascot_generic_formats.iter()
     }
 
     /// Returns a mutable iterator over the MGF records in the collection.
-    pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, MascotGenericFormat<I, P>> {
+    pub fn iter_mut(&mut self) -> core::slice::IterMut<'_, MascotGenericFormat<P>> {
         self.mascot_generic_formats.iter_mut()
     }
 
     /// Adds one MGF record to the end of the collection.
-    pub fn push(&mut self, mascot_generic_format: MascotGenericFormat<I, P>) {
+    pub fn push(&mut self, mascot_generic_format: MascotGenericFormat<P>) {
         self.mascot_generic_formats.push(mascot_generic_format);
     }
 
@@ -1104,11 +1082,7 @@ impl<I, P: SpectrumFloat> MGFVec<I, P> {
 }
 
 #[cfg(feature = "std")]
-impl<I, P> MGFVec<I, P>
-where
-    I: Copy + Display,
-    P: SpectrumFloat,
-{
+impl<P: SpectrumFloat> MGFVec<P> {
     /// Writes all records in canonical MGF syntax to a writer.
     ///
     /// Records are separated by one blank line.
@@ -1121,7 +1095,7 @@ where
     {
         for (index, mascot_generic_format) in self.mascot_generic_formats.iter().enumerate() {
             if index > 0 {
-                MascotGenericFormat::<I, P>::map_output_io(writeln!(writer))?;
+                MascotGenericFormat::<P>::map_output_io(writeln!(writer))?;
             }
             mascot_generic_format.write_record_to(&mut writer)?;
         }
@@ -1145,7 +1119,7 @@ where
 }
 
 #[cfg(feature = "std")]
-impl<P: SpectrumFloat> MGFVec<usize, P> {
+impl<P: SpectrumFloat> MGFVec<P> {
     /// Returns a builder for the converted `GeMS-A10` MGF dataset on Zenodo.
     #[must_use]
     pub fn gems_a10() -> GemsA10Builder<P> {
@@ -1177,7 +1151,7 @@ impl<P: SpectrumFloat> MGFVec<usize, P> {
     }
 }
 
-impl<I, P: SpectrumFloat> Default for MGFVec<I, P> {
+impl<P: SpectrumFloat> Default for MGFVec<P> {
     fn default() -> Self {
         Self {
             mascot_generic_formats: Vec::new(),
@@ -1185,10 +1159,10 @@ impl<I, P: SpectrumFloat> Default for MGFVec<I, P> {
     }
 }
 
-impl<I, P: SpectrumFloat> FromIterator<MascotGenericFormat<I, P>> for MGFVec<I, P> {
+impl<P: SpectrumFloat> FromIterator<MascotGenericFormat<P>> for MGFVec<P> {
     fn from_iter<T>(iter: T) -> Self
     where
-        T: IntoIterator<Item = MascotGenericFormat<I, P>>,
+        T: IntoIterator<Item = MascotGenericFormat<P>>,
     {
         Self {
             mascot_generic_formats: iter.into_iter().collect(),
@@ -1196,55 +1170,51 @@ impl<I, P: SpectrumFloat> FromIterator<MascotGenericFormat<I, P>> for MGFVec<I, 
     }
 }
 
-impl<I, P: SpectrumFloat> Extend<MascotGenericFormat<I, P>> for MGFVec<I, P> {
+impl<P: SpectrumFloat> Extend<MascotGenericFormat<P>> for MGFVec<P> {
     fn extend<T>(&mut self, iter: T)
     where
-        T: IntoIterator<Item = MascotGenericFormat<I, P>>,
+        T: IntoIterator<Item = MascotGenericFormat<P>>,
     {
         self.mascot_generic_formats.extend(iter);
     }
 }
 
-impl<I, P: SpectrumFloat> From<Vec<MascotGenericFormat<I, P>>> for MGFVec<I, P> {
-    fn from(mascot_generic_formats: Vec<MascotGenericFormat<I, P>>) -> Self {
+impl<P: SpectrumFloat> From<Vec<MascotGenericFormat<P>>> for MGFVec<P> {
+    fn from(mascot_generic_formats: Vec<MascotGenericFormat<P>>) -> Self {
         Self {
             mascot_generic_formats,
         }
     }
 }
 
-impl<I, P: SpectrumFloat> IntoIterator for MGFVec<I, P> {
-    type IntoIter = alloc::vec::IntoIter<MascotGenericFormat<I, P>>;
-    type Item = MascotGenericFormat<I, P>;
+impl<P: SpectrumFloat> IntoIterator for MGFVec<P> {
+    type IntoIter = alloc::vec::IntoIter<MascotGenericFormat<P>>;
+    type Item = MascotGenericFormat<P>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.mascot_generic_formats.into_iter()
     }
 }
 
-impl<'a, I, P: SpectrumFloat> IntoIterator for &'a MGFVec<I, P> {
-    type IntoIter = core::slice::Iter<'a, MascotGenericFormat<I, P>>;
-    type Item = &'a MascotGenericFormat<I, P>;
+impl<'a, P: SpectrumFloat> IntoIterator for &'a MGFVec<P> {
+    type IntoIter = core::slice::Iter<'a, MascotGenericFormat<P>>;
+    type Item = &'a MascotGenericFormat<P>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<'a, I, P: SpectrumFloat> IntoIterator for &'a mut MGFVec<I, P> {
-    type IntoIter = core::slice::IterMut<'a, MascotGenericFormat<I, P>>;
-    type Item = &'a mut MascotGenericFormat<I, P>;
+impl<'a, P: SpectrumFloat> IntoIterator for &'a mut MGFVec<P> {
+    type IntoIter = core::slice::IterMut<'a, MascotGenericFormat<P>>;
+    type Item = &'a mut MascotGenericFormat<P>;
 
     fn into_iter(self) -> Self::IntoIter {
         self.iter_mut()
     }
 }
 
-impl<I, P> FromStr for MGFVec<I, P>
-where
-    I: Copy + From<usize> + FromStr + Add<Output = I> + Eq + Debug,
-    P: SpectrumFloat,
-{
+impl<P: SpectrumFloat> FromStr for MGFVec<P> {
     type Err = MascotError;
 
     fn from_str(s: &str) -> Result<Self> {
@@ -1252,16 +1222,16 @@ where
     }
 }
 
-impl<I, P: SpectrumFloat> AsRef<[MascotGenericFormat<I, P>]> for MGFVec<I, P> {
-    fn as_ref(&self) -> &[MascotGenericFormat<I, P>] {
+impl<P: SpectrumFloat> AsRef<[MascotGenericFormat<P>]> for MGFVec<P> {
+    fn as_ref(&self) -> &[MascotGenericFormat<P>] {
         self.mascot_generic_formats.as_slice()
     }
 }
 
-impl<I: Copy, P: SpectrumFloat> Spectra for MGFVec<I, P> {
-    type Spectrum = MascotGenericFormat<I, P>;
+impl<P: SpectrumFloat> Spectra for MGFVec<P> {
+    type Spectrum = MascotGenericFormat<P>;
     type SpectraIter<'a>
-        = core::slice::Iter<'a, MascotGenericFormat<I, P>>
+        = core::slice::Iter<'a, MascotGenericFormat<P>>
     where
         Self: 'a;
 
@@ -1274,8 +1244,8 @@ impl<I: Copy, P: SpectrumFloat> Spectra for MGFVec<I, P> {
     }
 }
 
-impl<I, P: SpectrumFloat> Index<usize> for MGFVec<I, P> {
-    type Output = MascotGenericFormat<I, P>;
+impl<P: SpectrumFloat> Index<usize> for MGFVec<P> {
+    type Output = MascotGenericFormat<P>;
 
     fn index(&self, index: usize) -> &Self::Output {
         &self.mascot_generic_formats[index]

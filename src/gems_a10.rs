@@ -395,7 +395,7 @@ impl<P: SpectrumFloat> GemsA10Builder<P> {
 
         for file in download.files() {
             let (part_records, part_skipped_records) =
-                MGFVec::<usize, P>::from_path_skipping_invalid_records(file.path())?;
+                MGFVec::<P>::from_path_skipping_invalid_records(file.path())?;
             records.extend(part_records);
             skipped_records += part_skipped_records;
         }
@@ -582,7 +582,7 @@ impl GemsA10Download {
 #[cfg_attr(feature = "mem_size", derive(mem_dbg::MemSize))]
 #[cfg_attr(feature = "mem_dbg", derive(mem_dbg::MemDbg))]
 pub struct GemsA10Load<P: SpectrumFloat = f64> {
-    spectra: MGFVec<usize, P>,
+    spectra: MGFVec<P>,
     skipped_records: usize,
     files: Vec<GemsA10FileDownload>,
     bytes: u64,
@@ -591,13 +591,13 @@ pub struct GemsA10Load<P: SpectrumFloat = f64> {
 impl<P: SpectrumFloat> GemsA10Load<P> {
     /// Returns the loaded spectra.
     #[must_use]
-    pub const fn spectra(&self) -> &MGFVec<usize, P> {
+    pub const fn spectra(&self) -> &MGFVec<P> {
         &self.spectra
     }
 
     /// Consumes the load result and returns the loaded spectra.
     #[must_use]
-    pub fn into_spectra(self) -> MGFVec<usize, P> {
+    pub fn into_spectra(self) -> MGFVec<P> {
         self.spectra
     }
 
@@ -620,8 +620,8 @@ impl<P: SpectrumFloat> GemsA10Load<P> {
     }
 }
 
-impl<P: SpectrumFloat> AsRef<MGFVec<usize, P>> for GemsA10Load<P> {
-    fn as_ref(&self) -> &MGFVec<usize, P> {
+impl<P: SpectrumFloat> AsRef<MGFVec<P>> for GemsA10Load<P> {
+    fn as_ref(&self) -> &MGFVec<P> {
         self.spectra()
     }
 }

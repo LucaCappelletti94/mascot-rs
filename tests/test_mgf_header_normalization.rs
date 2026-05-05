@@ -144,7 +144,7 @@ fn test_mona_style_header_aliases_parse_with_surrounding_whitespace() -> Result<
 #[test]
 fn test_precursor_and_level_aliases_can_repeat_canonical_fields() -> Result<()> {
     let document = r"BEGIN IONS
-PEPMASS=360.0 123.4 1+
+PEPMASS=360.0000305175781 123.4 1+
 PRECURSOR_MZ=360.0
 MSLEVEL=2
 MS_LEVEL=MS2
@@ -164,6 +164,10 @@ END IONS
     assert_eq!(spectra.len(), 1);
     assert_eq!(spectra[0].charge(), Some(1));
     assert_eq!(spectra[0].level(), 2);
+    assert_eq!(
+        spectra[0].precursor_mz().to_bits(),
+        360.000_030_517_578_1_f64.to_bits()
+    );
     assert_eq!(spectra[0].source_instrument(), Some(Instrument::Quadrupole));
     assert_eq!(
         spectra[0].metadata().arbitrary_metadata_value("ADDUCT"),

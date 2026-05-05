@@ -10,12 +10,19 @@ use crate::numeric;
 use crate::prelude::*;
 
 const PRECURSOR_MZ_FIELD: &str = "precursor m/z";
+const PRECURSOR_MZ_ALIAS_TOLERANCE: f64 = 1e-4;
 const FRAGMENTATION_LEVEL_FIELD: &str = "fragmentation level";
 const RETENTION_TIME_FIELD: &str = "retention time";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PrecursorMzSource {
+    Pepmass,
+    PrecursorMz,
+}
+
 enum MGFMetadataLine<'a> {
     FeatureId(&'a str),
-    PrecursorMz(&'a str),
+    PrecursorMz(PrecursorMzSource, &'a str),
     MsLevel(&'a str),
     Scans(&'a str),
     Charge(&'a str),
@@ -36,6 +43,8 @@ pub struct MascotGenericFormatMetadataBuilder<P: SpectrumFloat = f64> {
     scans: Option<String>,
     level: Option<u8>,
     precursor_mz: Option<P>,
+    precursor_mz_source: Option<PrecursorMzSource>,
+    precursor_mz_precision: Option<usize>,
     retention_time: Option<f64>,
     charge: Option<i8>,
     merged_scan_count: Option<usize>,
@@ -59,6 +68,8 @@ impl<P: SpectrumFloat> Default for MascotGenericFormatMetadataBuilder<P> {
             scans: None,
             level: None,
             precursor_mz: None,
+            precursor_mz_source: None,
+            precursor_mz_precision: None,
             retention_time: None,
             charge: None,
             merged_scan_count: None,
@@ -250,25 +261,71 @@ impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
         )
     }
 
-    fn digest_precursor_mz_line(&mut self, stripped: &str, line: &str) -> Result<()> {
-        let precursor_mz = stripped
-            .split_whitespace()
-            .next()
-            .ok_or_else(|| MascotError::ParseField {
-                field: PRECURSOR_MZ_FIELD,
-                line: line.to_string(),
-            })
-            .and_then(|value| {
-                numeric::parse_positive_spectrum_float::<P>(value, PRECURSOR_MZ_FIELD, line)
-            })?;
+    fn precursor_mz_precision(value: &str) -> usize {
+        let mantissa = value
+            .split_once('e')
+            .or_else(|| value.split_once('E'))
+            .map_or(value, |(mantissa, _exponent)| mantissa);
+        let mantissa = mantissa
+            .strip_prefix('+')
+            .or_else(|| mantissa.strip_prefix('-'))
+            .unwrap_or(mantissa);
 
-        Self::set_parsed_field(
-            &mut self.precursor_mz,
-            precursor_mz,
-            "precursor_mz",
+        mantissa.chars().filter(char::is_ascii_digit).count()
+    }
+
+    fn digest_precursor_mz_line(
+        &mut self,
+        source: PrecursorMzSource,
+        stripped: &str,
+        line: &str,
+    ) -> Result<()> {
+        let precursor_mz_value =
+            stripped
+                .split_whitespace()
+                .next()
+                .ok_or_else(|| MascotError::ParseField {
+                    field: PRECURSOR_MZ_FIELD,
+                    line: line.to_string(),
+                })?;
+        let precursor_mz = numeric::parse_positive_spectrum_float::<P>(
+            precursor_mz_value,
+            PRECURSOR_MZ_FIELD,
             line,
-            |observed, value| observed.to_f64().to_bits() == value.to_f64().to_bits(),
-        )
+        )?;
+        let precision = Self::precursor_mz_precision(precursor_mz_value);
+
+        let Some(observed) = self.precursor_mz else {
+            self.precursor_mz = Some(precursor_mz);
+            self.precursor_mz_source = Some(source);
+            self.precursor_mz_precision = Some(precision);
+            return Ok(());
+        };
+
+        if observed.to_f64().to_bits() == precursor_mz.to_f64().to_bits() {
+            if precision > self.precursor_mz_precision.unwrap_or_default() {
+                self.precursor_mz_source = Some(source);
+                self.precursor_mz_precision = Some(precision);
+            }
+            return Ok(());
+        }
+
+        if self.precursor_mz_source == Some(source)
+            || (observed.to_f64() - precursor_mz.to_f64()).abs() > PRECURSOR_MZ_ALIAS_TOLERANCE
+        {
+            return Err(MascotError::ConflictingField {
+                field: "precursor_mz",
+                line: line.to_string(),
+            });
+        }
+
+        if precision > self.precursor_mz_precision.unwrap_or_default() {
+            self.precursor_mz = Some(precursor_mz);
+            self.precursor_mz_source = Some(source);
+            self.precursor_mz_precision = Some(precision);
+        }
+
+        Ok(())
     }
 
     fn parse_ms_level_value(stripped: &str, line: &str) -> Result<u8> {
@@ -741,11 +798,18 @@ impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
             return Some(MGFMetadataLine::FeatureId(stripped));
         }
 
-        if let Some(stripped) = line
-            .strip_prefix("PEPMASS=")
-            .or_else(|| line.strip_prefix("PRECURSOR_MZ="))
-        {
-            return Some(MGFMetadataLine::PrecursorMz(stripped));
+        if let Some(stripped) = line.strip_prefix("PEPMASS=") {
+            return Some(MGFMetadataLine::PrecursorMz(
+                PrecursorMzSource::Pepmass,
+                stripped,
+            ));
+        }
+
+        if let Some(stripped) = line.strip_prefix("PRECURSOR_MZ=") {
+            return Some(MGFMetadataLine::PrecursorMz(
+                PrecursorMzSource::PrecursorMz,
+                stripped,
+            ));
         }
 
         if let Some(stripped) = line
@@ -831,15 +895,15 @@ impl<P: SpectrumFloat> MascotGenericFormatMetadataBuilder<P> {
     /// # Error
     /// * If feature ID was already encountered and it is now different.
     /// * If scans was already encountered and it is now different.
-    /// * If PEPMASS was already encountered and it is now different.
+    /// * If `PEPMASS`/`PRECURSOR_MZ` aliases disagree beyond the precursor tolerance.
     /// * If rtinseconds was already encountered and it is now different.
     pub(super) fn digest_line(&mut self, line: &str) -> Result<()> {
         match Self::classify_line(line) {
             Some(MGFMetadataLine::FeatureId(stripped)) => {
                 self.digest_feature_id_line(stripped, line)
             }
-            Some(MGFMetadataLine::PrecursorMz(stripped)) => {
-                self.digest_precursor_mz_line(stripped, line)
+            Some(MGFMetadataLine::PrecursorMz(source, stripped)) => {
+                self.digest_precursor_mz_line(source, stripped, line)
             }
             Some(MGFMetadataLine::MsLevel(stripped)) => self.digest_ms_level_line(stripped, line),
             Some(MGFMetadataLine::Scans(stripped)) => self.digest_scans_line(stripped, line),
@@ -1121,6 +1185,48 @@ mod tests {
         let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
         parser.digest_line("PEPMASS=381.0795")?;
         assert!(parser.digest_line("PEPMASS=381.0796").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_same_precursor_field_with_rounded_difference() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
+        parser.digest_line("PEPMASS=288.12249755859375")?;
+        assert!(parser.digest_line("PEPMASS=288.1225").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn accepts_rounded_precursor_aliases_and_keeps_higher_precision() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
+        parser.digest_line("PRECURSOR_MZ=288.1225")?;
+        parser.digest_line("PEPMASS=288.12249755859375")?;
+        parser.digest_line("MSLEVEL=2")?;
+
+        let (_metadata, precursor_mz) = parser.build()?;
+
+        assert_eq!(precursor_mz.to_bits(), 288.122_497_558_593_75_f64.to_bits());
+        Ok(())
+    }
+
+    #[test]
+    fn accepts_rounded_precursor_aliases_when_higher_precision_is_first() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
+        parser.digest_line("PEPMASS=288.12249755859375")?;
+        parser.digest_line("PRECURSOR_MZ=288.1225")?;
+        parser.digest_line("MSLEVEL=2")?;
+
+        let (_metadata, precursor_mz) = parser.build()?;
+
+        assert_eq!(precursor_mz.to_bits(), 288.122_497_558_593_75_f64.to_bits());
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_precursor_aliases_that_differ_beyond_tolerance() -> Result<()> {
+        let mut parser = MascotGenericFormatMetadataBuilder::<f64>::default();
+        parser.digest_line("PEPMASS=381.0795")?;
+        assert!(parser.digest_line("PRECURSOR_MZ=381.0800").is_err());
         Ok(())
     }
 
@@ -1430,6 +1536,8 @@ mod tests {
             scans: Some("1".to_string()),
             level: Some(2),
             precursor_mz: Some(381.0795),
+            precursor_mz_source: Some(PrecursorMzSource::Pepmass),
+            precursor_mz_precision: Some(8),
             retention_time: None,
             charge: Some(1),
             merged_scan_count: Some(1),

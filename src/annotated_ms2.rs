@@ -8,20 +8,20 @@ use crate::error::Result;
 use crate::mascot_generic_format::MGFVec;
 
 /// Zenodo record ID for the annotated harmonized MS2 MGF dataset.
-pub const ANNOTATED_MS2_ZENODO_RECORD_ID: u64 = 20_036_408;
+pub const ANNOTATED_MS2_ZENODO_RECORD_ID: u64 = 20_039_648;
 
 /// DOI for the annotated harmonized MS2 MGF dataset.
-pub const ANNOTATED_MS2_ZENODO_DOI: &str = "10.5281/zenodo.20036408";
+pub const ANNOTATED_MS2_ZENODO_DOI: &str = "10.5281/zenodo.20039648";
 
 /// Current Zenodo endpoint for the annotated harmonized MS2 MGF file.
-pub const ANNOTATED_MS2_MGF_URL: &str = "https://zenodo.org/api/records/20036408/files/combined-gnps-mass-spec-gym-npc-faithful.harmonized-subset.mgf.zst/content";
+pub const ANNOTATED_MS2_MGF_URL: &str = "https://zenodo.org/api/records/20039648/files/combined-gnps-mass-spec-gym-npc-faithful.harmonized-subset.mgf.zst/content";
 
 /// File name used for the annotated harmonized MS2 MGF file.
 pub const ANNOTATED_MS2_MGF_FILE_NAME: &str =
     "combined-gnps-mass-spec-gym-npc-faithful.harmonized-subset.mgf.zst";
 
 /// Number of spectra reported by the Zenodo record.
-pub const ANNOTATED_MS2_SPECTRA_COUNT: usize = 522_678;
+pub const ANNOTATED_MS2_SPECTRA_COUNT: usize = 439_403;
 
 /// Builder for downloading and loading the annotated harmonized MS2 dataset.
 #[derive(Debug, Clone)]

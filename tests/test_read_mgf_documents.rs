@@ -1775,14 +1775,14 @@ fn test_annotated_ms2_builder_defaults_to_zenodo_file() {
 
     assert_eq!(builder.record_id(), ANNOTATED_MS2_ZENODO_RECORD_ID);
     assert_eq!(builder.doi(), ANNOTATED_MS2_ZENODO_DOI);
-    assert_eq!(ANNOTATED_MS2_ZENODO_RECORD_ID, 20_036_408);
-    assert_eq!(ANNOTATED_MS2_ZENODO_DOI, "10.5281/zenodo.20036408");
-    assert_eq!(ANNOTATED_MS2_SPECTRA_COUNT, 522_678);
+    assert_eq!(ANNOTATED_MS2_ZENODO_RECORD_ID, 20_039_648);
+    assert_eq!(ANNOTATED_MS2_ZENODO_DOI, "10.5281/zenodo.20039648");
+    assert_eq!(ANNOTATED_MS2_SPECTRA_COUNT, 439_403);
     assert_eq!(
         ANNOTATED_MS2_MGF_FILE_NAME,
         "combined-gnps-mass-spec-gym-npc-faithful.harmonized-subset.mgf.zst"
     );
-    assert!(ANNOTATED_MS2_MGF_URL.contains("20036408"));
+    assert!(ANNOTATED_MS2_MGF_URL.contains("20039648"));
     assert_eq!(
         builder.path().file_name().and_then(|name| name.to_str()),
         Some(ANNOTATED_MS2_MGF_FILE_NAME)

@@ -264,10 +264,10 @@ unambiguous.
 ## Annotated MS2
 
 The annotated MS2 helper is exposed through `MGFVec::<P>::annotated_ms2()`.
-It targets Zenodo record `20036408`, a zstd-compressed harmonized subset of
-GNPS public library and `MassSpecGym` MS/MS spectra. The record reports 522,678
-spectra with canonical `SMILES`, `INCHIKEY`, `FORMULA`, NPC, `ClassyFire`, and
-source-provenance annotations.
+It targets Zenodo record `20039648`, a zstd-compressed harmonized subset of
+GNPS public library and `MassSpecGym` MS/MS spectra. The record reports 439,403
+validated spectra with canonical `SMILES`, `INCHIKEY`, `FORMULA`, NPC,
+`ClassyFire`, and source-provenance annotations.
 
 ## GeMS-A10
 

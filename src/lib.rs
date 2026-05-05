@@ -2,6 +2,9 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 extern crate alloc;
 
+/// Annotated harmonized MS2 dataset helpers.
+#[cfg(feature = "std")]
+pub mod annotated_ms2;
 /// Downloadable dataset traits.
 #[cfg(feature = "std")]
 pub mod dataset;
@@ -29,6 +32,22 @@ mod numeric;
 
 /// Commonly used crate exports.
 pub mod prelude {
+    #[cfg(feature = "std")]
+    pub use crate::annotated_ms2::AnnotatedMs2Builder;
+    #[cfg(feature = "std")]
+    pub use crate::annotated_ms2::AnnotatedMs2Download;
+    #[cfg(feature = "std")]
+    pub use crate::annotated_ms2::AnnotatedMs2Load;
+    #[cfg(feature = "std")]
+    pub use crate::annotated_ms2::ANNOTATED_MS2_MGF_FILE_NAME;
+    #[cfg(feature = "std")]
+    pub use crate::annotated_ms2::ANNOTATED_MS2_MGF_URL;
+    #[cfg(feature = "std")]
+    pub use crate::annotated_ms2::ANNOTATED_MS2_SPECTRA_COUNT;
+    #[cfg(feature = "std")]
+    pub use crate::annotated_ms2::ANNOTATED_MS2_ZENODO_DOI;
+    #[cfg(feature = "std")]
+    pub use crate::annotated_ms2::ANNOTATED_MS2_ZENODO_RECORD_ID;
     #[cfg(feature = "std")]
     pub use crate::dataset::Dataset;
     #[cfg(feature = "std")]

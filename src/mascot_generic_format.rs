@@ -14,6 +14,8 @@ use mass_spectrometry::prelude::{
 };
 use molecular_formulas::prelude::ChemicalFormula;
 
+#[cfg(feature = "std")]
+use crate::annotated_ms2::AnnotatedMs2Builder;
 use crate::error::{MascotError, Result};
 #[cfg(feature = "std")]
 use crate::gems_a10::GemsA10Builder;
@@ -1139,6 +1141,12 @@ impl<P: SpectrumFloat> MGFVec<P> {
 
 #[cfg(feature = "std")]
 impl<P: SpectrumFloat> MGFVec<P> {
+    /// Returns a builder for the annotated harmonized MS2 MGF dataset on Zenodo.
+    #[must_use]
+    pub fn annotated_ms2() -> AnnotatedMs2Builder<P> {
+        AnnotatedMs2Builder::default()
+    }
+
     /// Returns a builder for the converted `GeMS-A10` MGF dataset on Zenodo.
     #[must_use]
     pub fn gems_a10() -> GemsA10Builder<P> {

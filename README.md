@@ -244,64 +244,11 @@ assert_eq!(spectrum.mz_nth(0).to_bits(), 100.0_f32.to_bits());
 
 ## GNPS
 
-The GNPS helper is exposed through `MGFVec::<P>::gnps()`. The example
-below writes a small local `ALL_GNPS.mgf` file first, so the builder downloads
-from the local cache, then loads that existing file without performing a network
-request. Dataset builders also implement `Dataset`, whose `download()` method
-only ensures that the local dataset file exists.
-
-```rust
-# #[cfg(feature = "std")]
-# fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-use mascot_rs::prelude::*;
-
-let target_directory =
-    std::env::temp_dir().join(format!("mascot-rs-readme-{}", std::process::id()));
-let cached_path = target_directory.join("ALL_GNPS.mgf");
-let _ = std::fs::remove_dir_all(&target_directory);
-std::fs::create_dir_all(&target_directory)?;
-
-std::fs::write(
-    &cached_path,
-    r#"BEGIN IONS
-PEPMASS=0.0
-CHARGE=1
-MSLEVEL=2
-SCANS=1
-100.0 2.0
-END IONS
-BEGIN IONS
-PEPMASS=500.0
-CHARGE=1
-MSLEVEL=2
-SCANS=2
-100.0 2.0
-END IONS
-"#,
-)?;
-
-let download = pollster::block_on(
-    MGFVec::<f32>::gnps()
-        .target_directory(&target_directory)
-        .download(),
-)?;
-assert_eq!(download.path(), cached_path.as_path());
-
-let load = pollster::block_on(
-    MGFVec::<f32>::gnps()
-        .target_directory(&target_directory)
-        .load(),
-)?;
-
-std::fs::remove_dir_all(&target_directory)?;
-
-assert_eq!(load.spectra().len(), 1);
-assert_eq!(load.skipped_records(), 1);
-# Ok(())
-# }
-# #[cfg(not(feature = "std"))]
-# fn main() {}
-```
+The GNPS helper is exposed through `MGFVec::<P>::gnps()`. Dataset builders
+implement `Dataset`: `download()` only ensures that the local file exists,
+while `load()` downloads if needed and parses the MGF records.
+The builder supports `.target_directory(...)`, `.file_name(...)`, `.verbose()`,
+and `.force_download(...)`.
 
 ## `MassSpecGym`
 
@@ -314,67 +261,13 @@ the original keys as arbitrary metadata. `ADDUCT` is handled by the generic MGF
 metadata parser, which derives charge and ion mode when the adduct is
 unambiguous.
 
-```rust
-# #[cfg(feature = "std")]
-# fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-use mascot_rs::prelude::*;
+## Annotated MS2
 
-let target_directory =
-    std::env::temp_dir().join(format!("mascot-rs-mass-spec-gym-{}", std::process::id()));
-let cached_path = target_directory.join("MassSpecGym.mgf");
-let _ = std::fs::remove_dir_all(&target_directory);
-std::fs::create_dir_all(&target_directory)?;
-
-std::fs::write(
-    &cached_path,
-    r#"BEGIN IONS
-IDENTIFIER=MassSpecGymID0000001
-SMILES=CCO
-INCHIKEY=LFQSCWFLJHTTHZ
-FORMULA=C2H6O
-PRECURSOR_FORMULA=C2H7O
-PARENT_MASS=46.041865
-PRECURSOR_MZ=47.049141
-ADDUCT=[M+H]+
-INSTRUMENT_TYPE=Orbitrap
-COLLISION_ENERGY=20.0
-FOLD=train
-SIMULATION_CHALLENGE=True
-31.0184 1.0
-45.0335 0.5
-END IONS
-"#,
-)?;
-
-let download = pollster::block_on(
-    MGFVec::<f32>::mass_spec_gym()
-        .target_directory(&target_directory)
-        .download(),
-)?;
-assert_eq!(download.path(), cached_path.as_path());
-
-let load = pollster::block_on(
-    MGFVec::<f32>::mass_spec_gym()
-        .target_directory(&target_directory)
-        .load(),
-)?;
-
-std::fs::remove_dir_all(&target_directory)?;
-
-assert_eq!(load.spectra().len(), 1);
-assert_eq!(load.spectra()[0].feature_id(), Some("MassSpecGymID0000001"));
-assert_eq!(load.spectra()[0].charge(), Some(1));
-assert_eq!(
-    load.spectra()[0]
-        .metadata()
-        .arbitrary_metadata_value("IDENTIFIER"),
-    Some("MassSpecGymID0000001")
-);
-# Ok(())
-# }
-# #[cfg(not(feature = "std"))]
-# fn main() {}
-```
+The annotated MS2 helper is exposed through `MGFVec::<P>::annotated_ms2()`.
+It targets Zenodo record `20036408`, a zstd-compressed harmonized subset of
+GNPS public library and `MassSpecGym` MS/MS spectra. The record reports 522,678
+spectra with canonical `SMILES`, `INCHIKEY`, `FORMULA`, NPC, `ClassyFire`, and
+source-provenance annotations.
 
 ## GeMS-A10
 
@@ -386,59 +279,7 @@ conversions are available with `MGFVec::<P>::gems_a10_top_60_peaks()`,
 `MGFVec::<P>::gems_a10_top_20_peaks()`, and with `.top_60_peaks()`,
 `.top_40_peaks()`, or `.top_20_peaks()` on the builder. They target Zenodo
 records `20001888`, `20002962`, and `20027219`, respectively. Uncached
-downloads use `zenodo-rs` and should be
-awaited inside a Tokio runtime. The example below writes a small cached file
-first, so the builder downloads from the local cache, then loads that local file
-without performing a network request.
-
-```rust
-# #[cfg(feature = "std")]
-# fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
-use mascot_rs::prelude::*;
-
-let target_directory =
-    std::env::temp_dir().join(format!("mascot-rs-gems-a10-readme-{}", std::process::id()));
-let cached_path = target_directory.join("cached-gems-a10.mgf");
-let _ = std::fs::remove_dir_all(&target_directory);
-std::fs::create_dir_all(&target_directory)?;
-
-std::fs::write(
-    &cached_path,
-    r"BEGIN IONS
-PEPMASS=500.0
-CHARGE=1
-MSLEVEL=2
-FEATURE_ID=1
-SCANS=1
-100.0 2.0
-END IONS
-",
-)?;
-
-let download = pollster::block_on(
-    MGFVec::<f32>::gems_a10()
-        .target_directory(&target_directory)
-        .file_key("cached-gems-a10.mgf")
-        .download(),
-)?;
-assert_eq!(download.files()[0].path(), cached_path.as_path());
-
-let load = pollster::block_on(
-    MGFVec::<f32>::gems_a10()
-        .target_directory(&target_directory)
-        .file_key("cached-gems-a10.mgf")
-        .load(),
-)?;
-
-std::fs::remove_dir_all(&target_directory)?;
-
-assert_eq!(load.spectra().len(), 1);
-assert_eq!(load.files()[0].key(), "cached-gems-a10.mgf");
-# Ok(())
-# }
-# #[cfg(not(feature = "std"))]
-# fn main() {}
-```
+downloads use `zenodo-rs` and should be awaited inside a Tokio runtime.
 
 [`MascotError::SingleRecordExpected`]: crate::error::MascotError::SingleRecordExpected
 [`MGFVec`]: crate::mascot_generic_format::MGFVec

@@ -1770,6 +1770,142 @@ fn test_gnps_builder_rejects_empty_file_name() {
 }
 
 #[test]
+fn test_annotated_ms2_builder_defaults_to_zenodo_file() {
+    let builder = MGFVec::<f64>::annotated_ms2();
+
+    assert_eq!(builder.record_id(), ANNOTATED_MS2_ZENODO_RECORD_ID);
+    assert_eq!(builder.doi(), ANNOTATED_MS2_ZENODO_DOI);
+    assert_eq!(ANNOTATED_MS2_ZENODO_RECORD_ID, 20_036_408);
+    assert_eq!(ANNOTATED_MS2_ZENODO_DOI, "10.5281/zenodo.20036408");
+    assert_eq!(ANNOTATED_MS2_SPECTRA_COUNT, 522_678);
+    assert_eq!(
+        ANNOTATED_MS2_MGF_FILE_NAME,
+        "combined-gnps-mass-spec-gym-npc-faithful.harmonized-subset.mgf.zst"
+    );
+    assert!(ANNOTATED_MS2_MGF_URL.contains("20036408"));
+    assert_eq!(
+        builder.path().file_name().and_then(|name| name.to_str()),
+        Some(ANNOTATED_MS2_MGF_FILE_NAME)
+    );
+}
+
+#[test]
+fn test_annotated_ms2_builder_loads_existing_downloaded_file() -> Result<()> {
+    let target_directory = std::env::temp_dir().join(format!(
+        "mascot-rs-annotated-ms2-test-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&target_directory);
+    std::fs::create_dir_all(&target_directory).map_err(|source| MascotError::Io {
+        path: target_directory.display().to_string(),
+        source,
+    })?;
+    let builder = MGFVec::<f32>::annotated_ms2()
+        .url("https://example.invalid/annotated-ms2.mgf")
+        .target_directory(&target_directory)
+        .file_name("cached-annotated-ms2.mgf")
+        .verbose()
+        .force_download(false);
+    let path = builder.path();
+    let document = r"BEGIN IONS
+FEATURE_ID=annotated-1
+PEPMASS=47.049141
+CHARGE=1+
+MSLEVEL=2
+SCANS=1
+SMILES=CCO
+INCHIKEY=LFQSCWFLJHTTHZ-UHFFFAOYSA-N
+FORMULA=C2H6O
+NPC_PATHWAY=Fatty acids
+CLASSYFIRE_DIRECT_PARENT=Alcohols
+31.0184 1.0
+45.0335 0.5
+END IONS
+BEGIN IONS
+FEATURE_ID=annotated-invalid
+PEPMASS=0.0
+CHARGE=1+
+MSLEVEL=2
+SCANS=2
+100.0 1.0
+END IONS
+";
+    std::fs::write(&path, document).map_err(|source| MascotError::Io {
+        path: path.display().to_string(),
+        source,
+    })?;
+    let expected_bytes = document.len() as u64;
+
+    let load = pollster::block_on(Dataset::load(builder))?;
+    let _ = std::fs::remove_dir_all(&target_directory);
+
+    assert!(load.mem_size(SizeFlags::default()) >= std::mem::size_of_val(&load));
+    assert_eq!(load.spectra().len(), 1);
+    assert_eq!(load.as_ref().len(), 1);
+    assert_eq!(load.skipped_records(), 1);
+    assert_eq!(load.path(), path.as_path());
+    assert_eq!(load.bytes(), expected_bytes);
+    assert_eq!(load.spectra()[0].feature_id(), Some("annotated-1"));
+    assert_eq!(load.spectra()[0].charge(), Some(1));
+    assert_eq!(
+        load.spectra()[0]
+            .metadata()
+            .arbitrary_metadata_value("NPC_PATHWAY"),
+        Some("Fatty acids")
+    );
+    assert_eq!(
+        load.spectra()[0]
+            .metadata()
+            .arbitrary_metadata_value("CLASSYFIRE_DIRECT_PARENT"),
+        Some("Alcohols")
+    );
+    let spectra = load.into_spectra();
+    assert_eq!(spectra.len(), 1);
+
+    Ok(())
+}
+
+#[test]
+fn test_annotated_ms2_builder_downloads_existing_file_without_loading() -> Result<()> {
+    let target_directory = std::env::temp_dir().join(format!(
+        "mascot-rs-annotated-ms2-download-test-{}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&target_directory);
+    std::fs::create_dir_all(&target_directory).map_err(|source| MascotError::Io {
+        path: target_directory.display().to_string(),
+        source,
+    })?;
+    let builder = MGFVec::<f32>::annotated_ms2()
+        .url("https://example.invalid/annotated-ms2.mgf")
+        .target_directory(&target_directory)
+        .file_name("cached-invalid.mgf")
+        .force_download(false);
+    let path = builder.path();
+    let document = "cached annotated MS2 file that should not be parsed\n";
+    std::fs::write(&path, document).map_err(|source| MascotError::Io {
+        path: path.display().to_string(),
+        source,
+    })?;
+
+    let download = pollster::block_on(<AnnotatedMs2Builder<f32> as Dataset>::download(builder))?;
+    let _ = std::fs::remove_dir_all(&target_directory);
+
+    assert_eq!(download.path(), path.as_path());
+    assert_eq!(download.bytes(), document.len() as u64);
+
+    Ok(())
+}
+
+#[test]
+fn test_annotated_ms2_builder_rejects_empty_file_name() {
+    assert!(matches!(
+        pollster::block_on(MGFVec::<f64>::annotated_ms2().file_name("").load()),
+        Err(MascotError::EmptyFilename)
+    ));
+}
+
+#[test]
 fn test_mass_spec_gym_builder_loads_existing_downloaded_file() -> Result<()> {
     let target_directory = std::env::temp_dir().join(format!(
         "mascot-rs-mass-spec-gym-test-{}",

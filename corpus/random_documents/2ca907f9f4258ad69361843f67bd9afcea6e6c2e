@@ -1,0 +1,17 @@
+BEGIN IONS
+IDENTIFIER=MassSpecGymID000001
+SMILES=CCO
+INCHIKEY=LFQSCWFLJHTTHZ
+FORMULA=CSSSSSSSSSSSSSSSSSSSSSSTSSSSSSSSSSSSSSSSSSSSSSSSSSSS3---------------------------------------------------------------------------------------------------SSSSSSSSSSSSSSSSSSSSSSSSSSWSSSSSSSSSSSSS------------------------------------------------SSSSSSSSSSSSSSSSN IONSSS3--------------------------SSSSSSSS[SSSSSS---------------SSSSSSS----------------------------------------SSS--------------------SSSSSSSSSSSSSSSSN IONSSS3--------------------------SSSSSSSS[SSSSSS------------S]SSSSSSSSSSSSSSSSSS3-------------------------------------------------------------2-------------------------------SSSSSSSSSSSSSSSSSSSWSSSSSSSSSSSSS--------------------------------------SSSSSSSSSSSSSN IONSSS3--------------------------SSSSSSSS[SSSSSS---------------SSSSSSS]SSSSSSSSSSSSS--------SSSSSSSSSSSSSSSSSSSWSSSSSSSSSSSSS--------SSSSS3---------------------------------------------------------------------------------------------------SSSSSSSSSSSSSSSSSSSWSSSSSSSSSSSSS-----------------------------------------------------------------------SSSSSSSSSSSSSSSSN IONSSS3--------------------------SSSSSSSS[SSSSSS------------S]SSSSSSSSSSSSSSSSSS3---------------------------------------------------------SSSSSSSSSSSSSSSSSSWSSSSSSSSSSSSSS------------------------------------------------SSSSSSSSSSSSSSSSN IONSSS3--------------------------SSSSSSSS[SSSSSS---------------SSSSSSS]SSSSSSSSSSSSS--------SSSSSSSSSSSSSSSSSSSSSSSSSTSSSSSSSSS-------------------------------------------------------------------------------------SSSSSSSSSSSSSSSSSSSSSSSSSTSSSSSSSSSSSSSSSSSSSSSSSSSSSS3--------------------------SSSSSSSSSSSSSSSSSSSWSSSSSSSSSSSSS------------------------------------------------SSSSSSSSSSSSSSSSN IONSSS3--------------------------------------SSSSSSSSSSSSSSSSN IONSSS3--------------------------SSSSSSSS[SSSSSS---------------SSSSSSS]SSSSSSSSSSSSSSSSSS3----------------------SSSSSN IONSSS3---------------------------------------------------------------------SSSSSSSSSSSSSSSSSSSSSSSSSTSSSSSSS--------------49141
+ADDUCT=[M+H]+
+INSTRUMDNT_TYPE=Orbitrap
+COLLISION_E 1.0
+45.0335 0.5
+END IONS
+BEGÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ-----------------------------------------------------------SSSSSSSSSSSSSSSSSSSSSSSSSTSSSSSSS--------------49141
+ADDUCT=[M+H]+
+INSTRUMDNT_TYPE=Orbitrap
+COLLISION_E 1.0
+45.0335 0.5
+END IONS
+BEGÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ/ÿÿÿÿÿÿÿÿÿÿ

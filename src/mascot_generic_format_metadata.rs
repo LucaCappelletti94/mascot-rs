@@ -132,6 +132,7 @@ impl Instrument {
             | "esiorbitrap"
             | "diesiorbitrap"
             | "apciorbitrap"
+            | "orbitrapidx"
             | "qexactiveplusorbitrapres14k"
             | "qexactiveplusorbitrapres70k"
             | "lcesiqexactiveplusorbitrapres14k"

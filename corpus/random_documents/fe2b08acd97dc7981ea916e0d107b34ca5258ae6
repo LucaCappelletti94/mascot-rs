@@ -1,0 +1,26 @@
+BEGIN IONS
+IDENTIFIER=MassSpecGymID0000001
+SMILES=CCO
+INCHIKEY=LFQSCWFLJHTTHZ
+FORMULA=CSSSSSSSSSSSSSSSSSSSSSSTSSSSSSSSSSSSSSSS-------------------------------------------------------------------------------SSSSSSSSSSSSSSSSS74.7703933SSSSSS---------------------------SSSSSSSSSSSSSSSSN IONSSS3--------------------------SSSSSSSS[SSSSSS---------------------------------SSSSSSSSSSSSSSSSN IONSSS3--------------------------SSSSSSSS[SSSSSS---------------SSSSSSS]SSSSSSSSSSSSSSSSSS3-----------------------------------------------------------------------------------------------SSSSSSSSSS3--------------------------------SSSSSSS]SSSSSSSSSSSSSSSSSS3------------------------------------------------------------------------------------------------------SSSSSSSSSSSSSSSS-------SSSSSSSSSSSSSSSSSSSWSSSSSSSSSSSSS------------------------------------------------SSSSSSSSSSSSSSSSN IONSSS3--------------------------SSSSSSSS[SSSSSS---------------------------------SSSSSSSSSSSSSSSSN IONSSS3--------------------------SSSSSSSS[SSSSSS---------------SSSSSSS]SSSSSSSSSSSSSSSSSS2-----------------------------------------------------------------------------------------------SSSSSSSSSS6--------------------------------SSSSSSS]SSSSSSSSSSSSSSSSSS3-----------------------------------------------------------------------------------------------SSSSSSSSSS3-------------------------------49141
+ADDUCT=[M+H]+
+INSTRUMDNT_TYPE=Orbitrap
+COLLISION_ENERGY=20.0
+FOLD=train
+SIMU]ATITION_CHALLENGE=True
+31.0184 1.0
+45.0335 0.5
+END IONS
+BEGÿÿÿÿÿÿÿÿÿÿÿÿ 1.0
+45.0335 0.5
+END IONS
+BEGÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ45.0335 0.5
+END IONS
+BEGÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ------------------------------------------------SSSSSSSSSSSSSSSSN IONSSS3--------------------------SSSSSSSS[SSSSSINSTRUMDNT_TYPE=Orbitrap
+COLLISION_ENER--------+
+INSTRUMDNT_TYPE=Orbitrap
+COLLISÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿIO----------------------------SSSSSSSSSSSSSSSSN IONSSS3-PE=Orbitrap
+COLLISION_ENER--------+
+INSTRUMDNT_TYPE=Orbitrap
+COLLISION_ENERGY=10.SSSSSSSSSSSN IONSSS3--------------------------SSSSSSSS[SSSSSINSTRUMDNT_TYPE=Orbitrap
+COLLISION_ENER----ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ
